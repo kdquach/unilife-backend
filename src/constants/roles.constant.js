@@ -1,0 +1,8 @@
+const ROLES = Object.freeze({
+  CUSTOMER: "CUSTOMER",
+  COUNTER_STAFF: "COUNTER_STAFF",
+  KITCHEN_STAFF: "KITCHEN_STAFF",
+  MANAGER: "MANAGER",
+  ADMIN: "ADMIN",
+});
+module.exports = ROLES;

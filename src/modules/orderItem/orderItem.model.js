@@ -1,0 +1,32 @@
+const mongoose = require("mongoose");
+
+const orderItemSchema = new mongoose.Schema(
+  {
+    orderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Order",
+      required: false,
+      index: true,
+    },
+    menuScheduleItemId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "MenuScheduleItem",
+      required: true,
+      index: true,
+    },
+    quantity: { type: Number, default: 0 },
+    unitPrice: { type: Number, default: 0 },
+    subtotal: { type: Number, default: 0 },
+  },
+  {
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
+    timestamps: false,
+  },
+);
+
+orderItemSchema.virtual("orderItemId").get(function () {
+  return this._id.toString();
+});
+
+module.exports = mongoose.model("OrderItem", orderItemSchema);
