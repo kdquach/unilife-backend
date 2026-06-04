@@ -4,6 +4,9 @@ const { authenticate } = require("../../middlewares/auth.middleware");
 
 const router = express.Router();
 
+router.get("/filter-options", controller.getFilterOptions);
+router.get("/filter", controller.filter);
+router.get("/search", controller.search);
 router.use(authenticate);
 router.get("/", controller.list);
 router.post("/", controller.create);
