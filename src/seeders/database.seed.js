@@ -313,6 +313,7 @@ const seedDatabase = async () => {
     imageUrl: "/uploads/foods/iced-tea.jpg",
     price: 8000,
     isMenuItem: false,
+    stockQuantity: 80,
     isActive: true,
   });
   await upsertById(Food, IDS.foods.sandwich, {

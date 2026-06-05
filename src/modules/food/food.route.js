@@ -4,11 +4,15 @@ const { authenticate } = require("../../middlewares/auth.middleware");
 
 const router = express.Router();
 
-router.use(authenticate);
+// Public - khách hàng xem danh sách & chi tiết món ăn (không cần đăng nhập)
 router.get("/", controller.list);
-router.post("/", controller.create);
 router.get("/:id", controller.getById);
+
+// Yêu cầu xác thực - thêm, sửa, xóa món ăn
+router.use(authenticate);
+router.post("/", controller.create);
 router.patch("/:id", controller.updateById);
 router.delete("/:id", controller.deleteById);
 
 module.exports = router;
+
