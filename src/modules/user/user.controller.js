@@ -16,13 +16,18 @@ const updateProfile = asyncHandler(async (req, res) =>
     "Profile updated successfully",
   ),
 );
-const uploadAvatar = asyncHandler(async (req, res) =>
-  success(
+const uploadAvatar = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    const err = new Error("Avatar file is required");
+    err.statusCode = 400;
+    throw err;
+  }
+  return success(
     res,
     await service.uploadAvatar(req.user._id, req.file),
     "Avatar uploaded successfully",
-  ),
-);
+  );
+});
 const listUsers = asyncHandler(async (req, res) =>
   success(res, await service.listUsers(req.query), "Get users successfully"),
 );
