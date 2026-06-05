@@ -6,12 +6,17 @@ const fs = require("fs");
 
 const getProfile = (userId) => User.findById(userId).select("-passwordHash");
 
-const updateProfile = (userId, data) =>
-  User.findByIdAndUpdate(
+const updateProfile = (userId, data) => {
+  const updateFields = {};
+  if (data.fullName !== undefined) updateFields.fullName = data.fullName;
+  if (data.phone !== undefined) updateFields.phone = data.phone;
+
+  return User.findByIdAndUpdate(
     userId,
-    { fullName: data.fullName, phone: data.phone },
+    { $set: updateFields },
     { new: true, runValidators: true },
   ).select("-passwordHash");
+};
 
 const uploadAvatar = async (userId, file) => {
   const oldUser = await User.findById(userId);
