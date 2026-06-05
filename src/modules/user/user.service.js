@@ -1,5 +1,8 @@
 const User = require("./user.model");
 const { getPagination } = require("../../utils/pagination.util");
+const sharp = require("sharp");
+const path = require("path");
+const fs = require("fs");
 
 const getProfile = (userId) => User.findById(userId).select("-passwordHash");
 
@@ -10,12 +13,46 @@ const updateProfile = (userId, data) =>
     { new: true, runValidators: true },
   ).select("-passwordHash");
 
-const uploadAvatar = (userId, file) =>
-  User.findByIdAndUpdate(
+const uploadAvatar = async (userId, file) => {
+  const oldUser = await User.findById(userId);
+
+  const uploadDir = process.env.AVATAR_UPLOAD_DIR || "uploads/avatars";
+  fs.mkdirSync(uploadDir, { recursive: true });
+
+  const filename = `${userId}-${Date.now()}.webp`;
+  const outputPath = path.join(uploadDir, filename);
+
+  // Compress to WebP with 80% quality and resize to 400x400
+  await sharp(file.buffer)
+    .resize(400, 400, {
+      fit: "cover",
+      withoutEnlargement: true,
+    })
+    .webp({ quality: 80 })
+    .toFile(outputPath);
+
+  // Delete old custom avatar to prevent orphaned files
+  if (oldUser && oldUser.avatarUrl && oldUser.avatarUrl.startsWith("/uploads/avatars/")) {
+    const isDefault = oldUser.avatarUrl.includes("default-");
+    if (!isDefault) {
+      const oldFilePath = path.join(process.cwd(), oldUser.avatarUrl);
+      try {
+        if (fs.existsSync(oldFilePath)) {
+          fs.unlinkSync(oldFilePath);
+        }
+      } catch (err) {
+        console.error("Failed to delete old avatar file:", err.message);
+      }
+    }
+  }
+
+  const avatarUrl = `/uploads/avatars/${filename}`;
+  return User.findByIdAndUpdate(
     userId,
-    { avatarUrl: `/uploads/avatars/${file.filename}` },
+    { avatarUrl },
     { new: true, runValidators: true },
   ).select("-passwordHash");
+};
 
 const listUsers = async (query = {}) => {
   const { page, limit, skip } = getPagination(query);

@@ -22,7 +22,7 @@ const imageFilter = (req, file, cb) => {
 
 const maxSize = Number(process.env.MAX_FILE_SIZE_MB || 5) * 1024 * 1024;
 const avatarUpload = multer({
-  storage: createStorage(process.env.AVATAR_UPLOAD_DIR || "uploads/avatars"),
+  storage: multer.memoryStorage(),
   fileFilter: imageFilter,
   limits: { fileSize: maxSize },
 });
