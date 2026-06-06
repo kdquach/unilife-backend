@@ -57,6 +57,14 @@ const createUser = asyncHandler(async (req, res) =>
   ),
 );
 
+const updateUser = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.updateUser(req.params.id, req.body),
+    "User updated successfully",
+  ),
+);
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -66,4 +74,5 @@ module.exports = {
   updateUserRole,
   getUserById,
   createUser,
+  updateUser,
 };

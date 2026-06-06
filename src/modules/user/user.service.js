@@ -87,6 +87,43 @@ const createUser = async (data) => {
   return user.toSafeJSON();
 };
 
+const updateUser = async (id, data) => {
+  const user = await User.findById(id);
+
+  if (!user) {
+    const err = new Error("User not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (data.email && data.email !== user.email) {
+    const existed = await User.findOne({
+      email: data.email,
+      _id: { $ne: id },
+    });
+
+    if (existed) {
+      const err = new Error("Email already exists");
+      err.statusCode = 409;
+      throw err;
+    }
+  }
+
+  return User.findByIdAndUpdate(
+    id,
+    {
+      fullName: data.fullName,
+      email: data.email,
+      phone: data.phone,
+      isActive: data.isActive,
+    },
+    {
+      new: true,
+      runValidators: true,
+    }
+  ).select("-passwordHash");
+};
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -96,4 +133,5 @@ module.exports = {
   updateUserRole,
   getUserById,
   createUser,
+  updateUser,
 };

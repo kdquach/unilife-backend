@@ -21,12 +21,17 @@ router.get(
   authorize(ROLES.ADMIN),
   controller.getUserById,
 );
+
 router.post(
   "/",
   authorize(ROLES.ADMIN),
   controller.createUser,
 );
-
+router.patch(
+  "/:id",
+  authorize(ROLES.ADMIN),
+  controller.updateUser,
+);
 router.patch(
   "/:id/status",
   authorize(ROLES.ADMIN),
