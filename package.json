@@ -6,15 +6,9 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "seed:admin": "node src/seeders/admin.seed.js",
-    "test": "jest --runInBand"
+    "seed:admin": "node src/seeders/admin.seed.js"
   },
-  "keywords": [
-    "nodejs",
-    "express",
-    "mongodb",
-    "unilife"
-  ],
+  "keywords": ["nodejs", "express", "mongodb", "unilife"],
   "author": "SWP493-G27",
   "license": "ISC",
   "dependencies": {
@@ -29,12 +23,9 @@
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
     "nodemailer": "^6.9.16",
-    "sharp": "^0.34.5",
     "uuid": "^11.0.5"
   },
   "devDependencies": {
-    "jest": "^30.4.2",
-    "nodemon": "^3.1.9",
-    "supertest": "^7.2.2"
+    "nodemon": "^3.1.9"
   }
 }

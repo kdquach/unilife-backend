@@ -33,26 +33,6 @@ const resetPassword = asyncHandler(async (req, res) => {
   return success(res, null, "Password reset successfully");
 });
 const changePassword = asyncHandler(async (req, res) => {
-  const { currentPassword, newPassword } = req.body;
-
-  if (!currentPassword) {
-    const err = new Error("Current password is required");
-    err.statusCode = 400;
-    throw err;
-  }
-
-  if (!newPassword || newPassword.length < 8) {
-    const err = new Error("New password must be at least 8 characters long");
-    err.statusCode = 400;
-    throw err;
-  }
-
-  if (currentPassword === newPassword) {
-    const err = new Error("New password must be different from current password");
-    err.statusCode = 400;
-    throw err;
-  }
-
   await authService.changePassword(req.user._id, req.body);
   return success(res, null, "Password changed successfully");
 });

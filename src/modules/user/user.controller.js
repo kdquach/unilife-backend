@@ -9,43 +9,20 @@ const getProfile = asyncHandler(async (req, res) =>
     "Get profile successfully",
   ),
 );
-const updateProfile = asyncHandler(async (req, res) => {
-  const { fullName, phone } = req.body;
-
-  if (fullName !== undefined) {
-    if (typeof fullName !== "string" || fullName.trim() === "") {
-      const err = new Error("Full name cannot be empty");
-      err.statusCode = 400;
-      throw err;
-    }
-  }
-
-  if (phone !== undefined && phone !== null) {
-    if (typeof phone !== "string" || !/^[0-9]{9,15}$/.test(phone)) {
-      const err = new Error("Invalid phone number format");
-      err.statusCode = 400;
-      throw err;
-    }
-  }
-
-  return success(
+const updateProfile = asyncHandler(async (req, res) =>
+  success(
     res,
     await service.updateProfile(req.user._id, req.body),
     "Profile updated successfully",
-  );
-});
-const uploadAvatar = asyncHandler(async (req, res) => {
-  if (!req.file) {
-    const err = new Error("Avatar file is required");
-    err.statusCode = 400;
-    throw err;
-  }
-  return success(
+  ),
+);
+const uploadAvatar = asyncHandler(async (req, res) =>
+  success(
     res,
     await service.uploadAvatar(req.user._id, req.file),
     "Avatar uploaded successfully",
-  );
-});
+  ),
+);
 const listUsers = asyncHandler(async (req, res) =>
   success(res, await service.listUsers(req.query), "Get users successfully"),
 );
