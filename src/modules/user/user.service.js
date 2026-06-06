@@ -1,5 +1,7 @@
 const User = require("./user.model");
 const { getPagination } = require("../../utils/pagination.util");
+const { hashPassword } = require("../../utils/password.util");
+const ROLES = require("../../constants/roles.constant");
 
 const getProfile = (userId) => User.findById(userId).select("-passwordHash");
 
@@ -61,6 +63,30 @@ const getUserById = (id) =>
   User.findById(id)
     .select("-passwordHash");
 
+const createUser = async (data) => {
+  const existing = await User.findOne({
+    email: data.email,
+  });
+
+  if (existing) {
+    const err = new Error("Email already exists");
+    err.statusCode = 409;
+    throw err;
+  }
+
+  const user = await User.create({
+    fullName: data.fullName,
+    email: data.email,
+    phone: data.phone,
+    passwordHash: await hashPassword(data.password),
+    role: data.role || ROLES.CUSTOMER,
+    avatarUrl: data.avatarUrl || null,
+    isActive: true,
+  });
+
+  return user.toSafeJSON();
+};
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -69,4 +95,5 @@ module.exports = {
   updateUserStatus,
   updateUserRole,
   getUserById,
+  createUser,
 };
