@@ -208,4 +208,5 @@ module.exports = {
   requestForgotPasswordOtp,
   resetPassword,
   changePassword,
+  toSafeUser,
 };

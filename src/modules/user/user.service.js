@@ -57,6 +57,10 @@ const updateUserRole = (id, role) =>
     { new: true, runValidators: true },
   ).select("-passwordHash");
 
+const getUserById = (id) => 
+  User.findById(id)
+    .select("-passwordHash");
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -64,4 +68,5 @@ module.exports = {
   listUsers,
   updateUserStatus,
   updateUserRole,
+  getUserById,
 };

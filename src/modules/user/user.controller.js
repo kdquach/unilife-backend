@@ -40,6 +40,13 @@ const updateUserRole = asyncHandler(async (req, res) =>
     "User role updated successfully",
   ),
 );
+const getUserById = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.getUserById(req.params.id),
+    "Get user detail successfully",
+  ),
+);
 
 module.exports = {
   getProfile,
@@ -48,4 +55,5 @@ module.exports = {
   listUsers,
   updateUserStatus,
   updateUserRole,
+  getUserById,
 };

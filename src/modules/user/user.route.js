@@ -16,6 +16,11 @@ router.post(
   controller.uploadAvatar,
 );
 router.get("/", authorize(ROLES.ADMIN, ROLES.MANAGER), controller.listUsers);
+router.get(
+  "/:id",
+  authorize(ROLES.ADMIN),
+  controller.getUserById,
+);
 router.patch(
   "/:id/status",
   authorize(ROLES.ADMIN),
