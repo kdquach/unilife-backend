@@ -5,11 +5,26 @@ const authService = require("./auth.service");
 const register = asyncHandler(async (req, res) =>
   success(
     res,
-    await authService.register(req.body, req),
-    "Register successfully",
+    await authService.register(req.body),
+    "Registration OTP sent successfully",
     201,
   ),
 );
+const verifyRegisterOtp = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await authService.verifyRegisterOtp(req.body, req),
+    "Register successfully",
+  ),
+);
+const resendRegisterOtp = asyncHandler(async (req, res) => {
+  await authService.resendRegisterOtp(req.body);
+  return success(
+    res,
+    null,
+    "If the email is pending verification, OTP has been sent",
+  );
+});
 const login = asyncHandler(async (req, res) =>
   success(res, await authService.login(req.body, req), "Login successfully"),
 );
@@ -42,6 +57,8 @@ const me = asyncHandler(async (req, res) =>
 
 module.exports = {
   register,
+  verifyRegisterOtp,
+  resendRegisterOtp,
   login,
   refresh,
   logout,

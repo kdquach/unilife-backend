@@ -28,4 +28,15 @@ const sendForgotPasswordOtp = async (email, otp) => {
   });
 };
 
-module.exports = { sendMail, sendForgotPasswordOtp };
+const sendRegistrationOtp = async (email, otp) => {
+  return sendMail({
+    to: email,
+    subject: "UniLife Account Verification OTP",
+    text:
+      `Your UniLife account verification OTP is ${otp}. ` +
+      "It will expire in 10 minutes.",
+    html: `<p>Your UniLife account verification OTP is <b>${otp}</b>.</p><p>It will expire in 10 minutes.</p>`,
+  });
+};
+
+module.exports = { sendMail, sendForgotPasswordOtp, sendRegistrationOtp };

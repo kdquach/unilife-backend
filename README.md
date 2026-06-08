@@ -19,7 +19,7 @@ Foreign key fields such as `userId`, `foodId`, `orderId`, `menuScheduleItemId` a
 ## Modules
 
 Functional module:
-- `auth`: login, register, refresh token, forgot password, reset password, logout, change password.
+- `auth`: login, register with email OTP verification, refresh token, forgot password, reset password, logout, change password.
 
 Database-table modules:
 - `user`
@@ -60,6 +60,8 @@ npm run dev
 
 ```txt
 POST   /api/v1/auth/register
+POST   /api/v1/auth/verify-register-otp
+POST   /api/v1/auth/resend-register-otp
 POST   /api/v1/auth/login
 POST   /api/v1/auth/refresh-token
 POST   /api/v1/auth/forgot-password
@@ -68,6 +70,11 @@ POST   /api/v1/auth/logout
 PATCH  /api/v1/auth/change-password
 GET    /api/v1/auth/me
 ```
+
+Register flow:
+- `POST /auth/register` creates a pending customer account and sends a 10-minute OTP to the user's email.
+- `POST /auth/verify-register-otp` verifies `{ email, otp, rememberMe }` and returns `accessToken`, `refreshToken`, and `user`.
+- Pending accounts cannot login until email verification succeeds.
 
 ## User APIs
 

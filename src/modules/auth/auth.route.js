@@ -5,6 +5,8 @@ const { authenticate } = require("../../middlewares/auth.middleware");
 const router = express.Router();
 
 router.post("/register", controller.register);
+router.post("/verify-register-otp", controller.verifyRegisterOtp);
+router.post("/resend-register-otp", controller.resendRegisterOtp);
 router.post("/login", controller.login);
 router.post("/refresh-token", controller.refresh);
 router.post("/forgot-password", controller.forgotPassword);

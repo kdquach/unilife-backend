@@ -9,12 +9,21 @@ const {
   verifyRefreshToken,
 } = require("../../utils/jwt.util");
 const { generateOtp, addMinutes } = require("../../utils/otp.util");
-const { sendForgotPasswordOtp } = require("../../utils/email.util");
+const {
+  sendForgotPasswordOtp,
+  sendRegistrationOtp,
+} = require("../../utils/email.util");
 const ROLES = require("../../constants/roles.constant");
+
+const OTP_PURPOSES = Object.freeze({
+  REGISTER: "REGISTER",
+  FORGOT_PASSWORD: "FORGOT_PASSWORD",
+});
 
 const hashToken = (token) =>
   crypto.createHash("sha256").update(token).digest("hex");
 const daysFromNow = (days) => new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
 
 const toSafeUser = (user) => ({
   id: user._id,
@@ -25,6 +34,7 @@ const toSafeUser = (user) => ({
   role: user.role,
   avatarUrl: user.avatarUrl,
   isActive: user.isActive,
+  isEmailVerified: user.isEmailVerified !== false,
 });
 
 const buildAuthPayload = async (user, req, rememberMe = false) => {
@@ -42,9 +52,62 @@ const buildAuthPayload = async (user, req, rememberMe = false) => {
   return { accessToken, refreshToken, user: toSafeUser(user) };
 };
 
-const register = async (data, req) => {
-  const existing = await User.findOne({ email: data.email });
+const findValidOtp = async (userId, purpose, otp) => {
+  const otpDocs = await OTP.find({
+    userId,
+    purpose,
+    isUsed: false,
+    expiresAt: { $gt: new Date() },
+  }).sort({ createdAt: -1 });
+
+  for (const doc of otpDocs) {
+    if (await comparePassword(otp, doc.code)) return doc;
+  }
+
+  return null;
+};
+
+const issueRegistrationOtp = async (user) => {
+  await OTP.updateMany(
+    {
+      userId: user._id,
+      purpose: OTP_PURPOSES.REGISTER,
+      isUsed: false,
+    },
+    { isUsed: true },
+  );
+
+  const otp = generateOtp();
+  const expiresAt = addMinutes(10);
+  await OTP.create({
+    userId: user._id,
+    code: await hashPassword(otp),
+    purpose: OTP_PURPOSES.REGISTER,
+    isUsed: false,
+    expiresAt,
+  });
+
+  await sendRegistrationOtp(user.email, otp);
+  return expiresAt;
+};
+
+const register = async (data) => {
+  const email = normalizeEmail(data.email);
+  const existing = await User.findOne({ email });
   if (existing) {
+    if (existing.isEmailVerified === false) {
+      existing.fullName = data.fullName;
+      existing.phone = data.phone;
+      existing.passwordHash = await hashPassword(data.password);
+      existing.role = ROLES.CUSTOMER;
+      existing.avatarUrl = data.avatarUrl || null;
+      existing.isActive = true;
+      await existing.save();
+
+      const otpExpiresAt = await issueRegistrationOtp(existing);
+      return { user: toSafeUser(existing), otpExpiresAt };
+    }
+
     const err = new Error("Email already exists");
     err.statusCode = 409;
     throw err;
@@ -52,19 +115,59 @@ const register = async (data, req) => {
 
   const user = await User.create({
     fullName: data.fullName,
-    email: data.email,
+    email,
     phone: data.phone,
     passwordHash: await hashPassword(data.password),
-    role: data.role || ROLES.CUSTOMER,
+    role: ROLES.CUSTOMER,
     avatarUrl: data.avatarUrl || null,
     isActive: true,
+    isEmailVerified: false,
   });
 
-  return buildAuthPayload(user, req, data.rememberMe);
+  const otpExpiresAt = await issueRegistrationOtp(user);
+  return { user: toSafeUser(user), otpExpiresAt };
+};
+
+const verifyRegisterOtp = async ({ email, otp, rememberMe }, req) => {
+  const user = await User.findOne({ email: normalizeEmail(email) });
+  if (!user) {
+    const err = new Error("Invalid OTP or email");
+    err.statusCode = 400;
+    throw err;
+  }
+  if (user.isEmailVerified !== false) {
+    const err = new Error("Email is already verified");
+    err.statusCode = 409;
+    throw err;
+  }
+
+  const matchedOtp = await findValidOtp(user._id, OTP_PURPOSES.REGISTER, otp);
+  if (!matchedOtp) {
+    const err = new Error("Invalid or expired OTP");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  matchedOtp.isUsed = true;
+  await matchedOtp.save();
+  user.isEmailVerified = true;
+  await user.save();
+
+  return buildAuthPayload(user, req, rememberMe);
+};
+
+const resendRegisterOtp = async ({ email }) => {
+  const user = await User.findOne({ email: normalizeEmail(email) });
+  if (!user || user.isEmailVerified !== false) return true;
+
+  await issueRegistrationOtp(user);
+  return true;
 };
 
 const login = async ({ email, password, rememberMe }, req) => {
-  const user = await User.findOne({ email }).select("+passwordHash");
+  const user = await User.findOne({ email: normalizeEmail(email) }).select(
+    "+passwordHash",
+  );
   if (!user) {
     const err = new Error("Incorrect email or password");
     err.statusCode = 401;
@@ -74,6 +177,11 @@ const login = async ({ email, password, rememberMe }, req) => {
     const err = new Error(
       "Your account has been disabled. Please contact Admin for support.",
     );
+    err.statusCode = 403;
+    throw err;
+  }
+  if (user.isEmailVerified === false) {
+    const err = new Error("Please verify your email before logging in.");
     err.statusCode = 403;
     throw err;
   }
@@ -104,7 +212,7 @@ const refresh = async ({ refreshToken }, req) => {
   }
 
   const user = await User.findById(decoded.userId);
-  if (!user || !user.isActive) {
+  if (!user || !user.isActive || user.isEmailVerified === false) {
     const err = new Error("Invalid account");
     err.statusCode = 401;
     throw err;
@@ -121,14 +229,14 @@ const logout = async (userId) => {
 };
 
 const requestForgotPasswordOtp = async ({ email }) => {
-  const user = await User.findOne({ email });
+  const user = await User.findOne({ email: normalizeEmail(email) });
   if (!user) return true;
 
   const otp = generateOtp();
   await OTP.create({
     userId: user._id,
     code: await hashPassword(otp),
-    purpose: "FORGOT_PASSWORD",
+    purpose: OTP_PURPOSES.FORGOT_PASSWORD,
     isUsed: false,
     expiresAt: addMinutes(10),
   });
@@ -138,27 +246,20 @@ const requestForgotPasswordOtp = async ({ email }) => {
 };
 
 const resetPassword = async ({ email, otp, newPassword }) => {
-  const user = await User.findOne({ email }).select("+passwordHash");
+  const user = await User.findOne({ email: normalizeEmail(email) }).select(
+    "+passwordHash",
+  );
   if (!user) {
     const err = new Error("Invalid OTP or email");
     err.statusCode = 400;
     throw err;
   }
 
-  const otpDocs = await OTP.find({
-    userId: user._id,
-    purpose: "FORGOT_PASSWORD",
-    isUsed: false,
-    expiresAt: { $gt: new Date() },
-  }).sort({ createdAt: -1 });
-  let matchedOtp = null;
-  for (const doc of otpDocs) {
-    if (await comparePassword(otp, doc.code)) {
-      matchedOtp = doc;
-      break;
-    }
-  }
-
+  const matchedOtp = await findValidOtp(
+    user._id,
+    OTP_PURPOSES.FORGOT_PASSWORD,
+    otp,
+  );
   if (!matchedOtp) {
     const err = new Error("Invalid or expired OTP");
     err.statusCode = 400;
@@ -202,6 +303,8 @@ const changePassword = async (userId, { currentPassword, newPassword }) => {
 
 module.exports = {
   register,
+  verifyRegisterOtp,
+  resendRegisterOtp,
   login,
   refresh,
   logout,
