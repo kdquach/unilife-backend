@@ -91,6 +91,30 @@ const issueRegistrationOtp = async (user) => {
   return expiresAt;
 };
 
+const issueForgotPasswordOtp = async (user) => {
+  await OTP.updateMany(
+    {
+      userId: user._id,
+      purpose: OTP_PURPOSES.FORGOT_PASSWORD,
+      isUsed: false,
+    },
+    { isUsed: true },
+  );
+
+  const otp = generateOtp();
+  const expiresAt = addMinutes(10);
+  await OTP.create({
+    userId: user._id,
+    code: await hashPassword(otp),
+    purpose: OTP_PURPOSES.FORGOT_PASSWORD,
+    isUsed: false,
+    expiresAt,
+  });
+
+  await sendForgotPasswordOtp(user.email, otp);
+  return expiresAt;
+};
+
 const register = async (data) => {
   const email = normalizeEmail(data.email);
   const existing = await User.findOne({ email });
@@ -230,18 +254,17 @@ const logout = async (userId) => {
 
 const requestForgotPasswordOtp = async ({ email }) => {
   const user = await User.findOne({ email: normalizeEmail(email) });
-  if (!user) return true;
+  if (!user || !user.isActive || user.isEmailVerified === false) return true;
 
-  const otp = generateOtp();
-  await OTP.create({
-    userId: user._id,
-    code: await hashPassword(otp),
-    purpose: OTP_PURPOSES.FORGOT_PASSWORD,
-    isUsed: false,
-    expiresAt: addMinutes(10),
-  });
+  await issueForgotPasswordOtp(user);
+  return true;
+};
 
-  await sendForgotPasswordOtp(user.email, otp);
+const resendForgotPasswordOtp = async ({ email }) => {
+  const user = await User.findOne({ email: normalizeEmail(email) });
+  if (!user || !user.isActive || user.isEmailVerified === false) return true;
+
+  await issueForgotPasswordOtp(user);
   return true;
 };
 
@@ -270,6 +293,14 @@ const resetPassword = async ({ email, otp, newPassword }) => {
   await matchedOtp.save();
   user.passwordHash = await hashPassword(newPassword);
   await user.save();
+  await OTP.updateMany(
+    {
+      userId: user._id,
+      purpose: OTP_PURPOSES.FORGOT_PASSWORD,
+      isUsed: false,
+    },
+    { isUsed: true },
+  );
   await Session.updateMany(
     { userId: user._id, isRevoked: false },
     { isRevoked: true },
@@ -309,6 +340,7 @@ module.exports = {
   refresh,
   logout,
   requestForgotPasswordOtp,
+  resendForgotPasswordOtp,
   resetPassword,
   changePassword,
   toSafeUser,

@@ -65,6 +65,7 @@ POST   /api/v1/auth/resend-register-otp
 POST   /api/v1/auth/login
 POST   /api/v1/auth/refresh-token
 POST   /api/v1/auth/forgot-password
+POST   /api/v1/auth/resend-forgot-password-otp
 POST   /api/v1/auth/reset-password
 POST   /api/v1/auth/logout
 PATCH  /api/v1/auth/change-password
@@ -75,6 +76,11 @@ Register flow:
 - `POST /auth/register` creates a pending customer account and sends a 10-minute OTP to the user's email.
 - `POST /auth/verify-register-otp` verifies `{ email, otp, rememberMe }` and returns `accessToken`, `refreshToken`, and `user`.
 - Pending accounts cannot login until email verification succeeds.
+
+Forgot password flow:
+- `POST /auth/forgot-password` sends a 10-minute OTP to the user's email when the account exists, is active, and is email-verified.
+- `POST /auth/resend-forgot-password-otp` sends a new OTP and invalidates previous forgot-password OTPs.
+- `POST /auth/reset-password` verifies `{ email, otp, newPassword }`, updates the password, invalidates active sessions, and consumes active forgot-password OTPs.
 
 ## User APIs
 
