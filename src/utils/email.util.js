@@ -10,13 +10,24 @@ const createTransporter = () =>
 
 const sendMail = async ({ to, subject, html, text }) => {
   const transporter = createTransporter();
-  return transporter.sendMail({
-    from: process.env.MAIL_FROM || process.env.SMTP_USER,
-    to,
-    subject,
-    html,
-    text,
-  });
+  try {
+    return await transporter.sendMail({
+      from: process.env.MAIL_FROM || process.env.SMTP_USER,
+      to,
+      subject,
+      html,
+      text,
+    });
+  } catch (error) {
+    const err = new Error(
+      error?.code === "EAUTH" || error?.responseCode === 535
+        ? "Email service authentication failed. Please check SMTP_USER and SMTP_PASS app password."
+        : "Email service is unavailable. Please try again later.",
+    );
+    err.statusCode = 502;
+    err.cause = error;
+    throw err;
+  }
 };
 
 const sendForgotPasswordOtp = async (email, otp) => {

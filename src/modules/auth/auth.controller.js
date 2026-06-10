@@ -52,7 +52,7 @@ const changePassword = asyncHandler(async (req, res) => {
   return success(res, null, "Password changed successfully");
 });
 const me = asyncHandler(async (req, res) =>
-  success(res, req.user, "Get profile successfully"),
+  success(res, authService.toSafeUser(req.user), "Get profile successfully"),
 );
 
 module.exports = {
