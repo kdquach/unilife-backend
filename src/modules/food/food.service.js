@@ -30,12 +30,10 @@ const buildFilter = (query = {}, options = {}) => {
   const keyword = (query.keyword || query.q || query.search || "").trim();
   const isActive = toBoolean(query.isActive);
   const categoryIds = getObjectIds(query.categoryIds || query.categoryId);
-
   if (isActive !== undefined) filter.isActive = isActive;
   else if (options.defaultIsActive !== undefined) {
     filter.isActive = options.defaultIsActive;
   }
-
   if (query.kind === "alwaysAvailable") {
     filter.isMenuItem = false;
   } else if (query.kind === "menuItem") {
@@ -44,13 +42,11 @@ const buildFilter = (query = {}, options = {}) => {
     const isMenuItem = toBoolean(query.isMenuItem);
     if (isMenuItem !== undefined) filter.isMenuItem = isMenuItem;
   }
-
   if (categoryIds.length === 1) {
     filter.categoryId = categoryIds[0];
   } else if (categoryIds.length > 1) {
     filter.categoryId = { $in: categoryIds };
   }
-
   if (keyword) {
     const regex = new RegExp(escapeRegExp(keyword), "i");
     filter.$or = [{ name: regex }, { description: regex }];
