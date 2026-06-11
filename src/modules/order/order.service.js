@@ -1,10 +1,62 @@
 const Order = require("./order.model");
 const OrderItem = require("../orderItem/orderItem.model");
 const Queue = require("../queue/queue.model");
+const Food = require("../food/food.model");
+const MenuScheduleItem = require("../menuScheduleItem/menuScheduleItem.model");
 const { getPagination } = require("../../utils/pagination.util");
 
 const create = async (data) => {
   const { items, paymentMethod, ...orderData } = data;
+
+  // Validate and deduct stock for each item first
+  if (items && Array.isArray(items)) {
+    for (const item of items) {
+      if (item.itemType === "MENU_ITEM" || !item.itemType) {
+        if (!item.menuScheduleItemId) {
+          const error = new Error("Menu schedule item ID is required for menu items.");
+          error.statusCode = 400;
+          throw error;
+        }
+        const menuScheduleItem = await MenuScheduleItem.findById(item.menuScheduleItemId);
+        if (!menuScheduleItem) {
+          const error = new Error("Menu schedule item not found.");
+          error.statusCode = 404;
+          throw error;
+        }
+        if (menuScheduleItem.remainingCount < item.quantity) {
+          const error = new Error(`Insufficient servings remaining for menu item.`);
+          error.statusCode = 400;
+          throw error;
+        }
+        // Deduct remainingCount and add to reservedCount
+        menuScheduleItem.remainingCount -= item.quantity;
+        menuScheduleItem.reservedCount += item.quantity;
+        await menuScheduleItem.save();
+      } else if (item.itemType === "REGULAR_FOOD") {
+        if (!item.foodId) {
+          const error = new Error("Food ID is required for regular food items.");
+          error.statusCode = 400;
+          throw error;
+        }
+        const food = await Food.findById(item.foodId);
+        if (!food) {
+          const error = new Error("Food item not found.");
+          error.statusCode = 404;
+          throw error;
+        }
+        if (food.stockQuantity !== null && food.stockQuantity < item.quantity) {
+          const error = new Error(`Insufficient stock for food item ${food.name}.`);
+          error.statusCode = 400;
+          throw error;
+        }
+        // Deduct from stockQuantity
+        if (food.stockQuantity !== null) {
+          food.stockQuantity -= item.quantity;
+          await food.save();
+        }
+      }
+    }
+  }
 
   // Generate order code
   const count = await Order.countDocuments();
@@ -124,8 +176,68 @@ const getById = (id) =>
         },
       ],
     });
-const updateById = (id, data) =>
-  Order.findByIdAndUpdate(id, data, { new: true, runValidators: true });
+const updateById = async (id, data) => {
+  if (data.status === "CANCELLED") {
+    const order = await Order.findById(id).populate("items");
+    if (!order) {
+      const error = new Error("Order not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const currentStatus = order.status.toUpperCase();
+    if (["PREPARING", "READY", "COMPLETED", "CANCELLED"].includes(currentStatus)) {
+      const error = new Error(`Cannot cancel order. Current status is ${order.status}.`);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // PAID order timeframe check (5 minutes = 300,000 ms)
+    if (currentStatus === "PAID") {
+      const timeDiff = Date.now() - new Date(order.createdAt).getTime();
+      if (timeDiff > 5 * 60 * 1000) {
+        const error = new Error("Cannot cancel order after preparation has started (5 minutes limit exceeded).");
+        error.statusCode = 400;
+        throw error;
+      }
+    }
+
+    // Initiate refund if already paid
+    if (order.paymentStatus === "PAID") {
+      order.paymentStatus = "REFUND_PENDING";
+    }
+
+    order.status = "CANCELLED";
+    await order.save();
+
+    // Update associated Queue status to CANCELLED
+    await Queue.updateOne({ orderId: id }, { $set: { status: "CANCELLED" } });
+
+    // Restore stock/servings
+    if (order.items && Array.isArray(order.items)) {
+      for (const item of order.items) {
+        if (item.itemType === "MENU_ITEM" && item.menuScheduleItemId) {
+          const menuScheduleItem = await MenuScheduleItem.findById(item.menuScheduleItemId);
+          if (menuScheduleItem) {
+            menuScheduleItem.remainingCount += item.quantity;
+            menuScheduleItem.reservedCount = Math.max(0, menuScheduleItem.reservedCount - item.quantity);
+            await menuScheduleItem.save();
+          }
+        } else if (item.itemType === "REGULAR_FOOD" && item.foodId) {
+          const food = await Food.findById(item.foodId);
+          if (food && food.stockQuantity !== null) {
+            food.stockQuantity += item.quantity;
+            await food.save();
+          }
+        }
+      }
+    }
+
+    return getById(id);
+  }
+
+  return Order.findByIdAndUpdate(id, data, { new: true, runValidators: true });
+};
 const deleteById = (id) => Order.findByIdAndDelete(id);
 
 module.exports = { create, list, getById, updateById, deleteById };
