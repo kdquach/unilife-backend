@@ -5,11 +5,26 @@ const authService = require("./auth.service");
 const register = asyncHandler(async (req, res) =>
   success(
     res,
-    await authService.register(req.body, req),
-    "Register successfully",
+    await authService.register(req.body),
+    "Registration OTP sent successfully",
     201,
   ),
 );
+const verifyRegisterOtp = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await authService.verifyRegisterOtp(req.body, req),
+    "Register successfully",
+  ),
+);
+const resendRegisterOtp = asyncHandler(async (req, res) => {
+  await authService.resendRegisterOtp(req.body);
+  return success(
+    res,
+    null,
+    "If the email is pending verification, OTP has been sent",
+  );
+});
 const login = asyncHandler(async (req, res) =>
   success(res, await authService.login(req.body, req), "Login successfully"),
 );
@@ -26,6 +41,10 @@ const logout = asyncHandler(async (req, res) => {
 });
 const forgotPassword = asyncHandler(async (req, res) => {
   await authService.requestForgotPasswordOtp(req.body);
+  return success(res, null, "If the email exists, OTP has been sent");
+});
+const resendForgotPasswordOtp = asyncHandler(async (req, res) => {
+  await authService.resendForgotPasswordOtp(req.body);
   return success(res, null, "If the email exists, OTP has been sent");
 });
 const resetPassword = asyncHandler(async (req, res) => {
@@ -57,15 +76,18 @@ const changePassword = asyncHandler(async (req, res) => {
   return success(res, null, "Password changed successfully");
 });
 const me = asyncHandler(async (req, res) =>
-  success(res, req.user, "Get profile successfully"),
+  success(res, authService.toSafeUser(req.user), "Get profile successfully"),
 );
 
 module.exports = {
   register,
+  verifyRegisterOtp,
+  resendRegisterOtp,
   login,
   refresh,
   logout,
   forgotPassword,
+  resendForgotPasswordOtp,
   resetPassword,
   changePassword,
   me,

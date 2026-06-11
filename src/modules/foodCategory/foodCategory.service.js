@@ -7,20 +7,15 @@ const list = async (query = {}) => {
   const { page, limit, skip } = getPagination(query);
   const filter = {};
   if (query.isActive !== undefined) filter.isActive = query.isActive === "true";
-  if (query.status) filter.status = query.status;
-  if (query.type) filter.type = query.type;
-  if (query.keyword)
-    filter.$or = [
-      { name: new RegExp(query.keyword, "i") },
-      { title: new RegExp(query.keyword, "i") },
-      { email: new RegExp(query.keyword, "i") },
-      { fullName: new RegExp(query.keyword, "i") },
-    ];
+  if (query.keyword) {
+    filter.name = new RegExp(query.keyword, "i");
+  }
 
   const [items, total] = await Promise.all([
     FoodCategory.find(filter).skip(skip).limit(limit).sort({ createdAt: -1 }),
     FoodCategory.countDocuments(filter),
   ]);
+
 
   return {
     items,
