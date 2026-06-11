@@ -1,5 +1,6 @@
 const Cart = require("./cart.model");
 const CartItem = require("../cartItem/cartItem.model");
+const MenuScheduleItem = require("../menuScheduleItem/menuScheduleItem.model");
 const { getPagination } = require("../../utils/pagination.util");
 
 const create = (data) => Cart.create(data);
@@ -134,4 +135,79 @@ const getMyCart = async (userId) => {
   };
 };
 
-module.exports = { create, list, getById, updateById, deleteById, getMyCart };
+const addItem = async (userId, data) => {
+  const { menuScheduleItemId, quantity } = data;
+  if (!menuScheduleItemId || quantity == null || quantity <= 0) {
+    const error = new Error("Quantity and dish ID are required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  let cart = await Cart.findOne({ userId });
+  if (!cart) {
+    cart = await Cart.create({ userId });
+  }
+
+  const msi = await MenuScheduleItem.findById(menuScheduleItemId)
+    .populate("foodId")
+    .populate("menuScheduleId");
+
+  if (!msi) {
+    const err = new Error("The dish does not exist in the menu schedule");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (!msi.isActive) {
+    const err = new Error(
+      "The dish is not available today or has been discontinued",
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!msi.foodId || !msi.foodId.isActive) {
+    const err = new Error("The dish is no longer available for purchase");
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!msi.menuScheduleId || msi.menuScheduleId.status !== "PUBLISHED") {
+    const err = new Error("The menu schedule is not published");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Validate quantity against remainingCount using findOne to prevent exceeding stock
+  // In a truly atomic setup for inventory, this check would happen via a lock or atomic transaction
+  // However, for cart item updates, we use findOneAndUpdate with $inc to be as atomic as possible.
+  const existingCartItem = await CartItem.findOne({
+    cartId: cart._id,
+    menuScheduleItemId,
+  }).lean();
+  const currentQuantity = existingCartItem ? existingCartItem.quantity : 0;
+
+  if (currentQuantity + quantity > msi.remainingCount) {
+    const err = new Error(
+      `The remaining quantity is insufficient (only ${msi.remainingCount} items left)`,
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Atomic update using $inc
+  await CartItem.findOneAndUpdate(
+    { cartId: cart._id, menuScheduleItemId },
+    { $inc: { quantity: quantity } },
+    { upsert: true, new: true, setDefaultsOnInsert: true },
+  );
+
+  return getMyCart(userId);
+};
+
+module.exports = {
+  create,
+  list,
+  getById,
+  updateById,
+  deleteById,
+  getMyCart,
+  addItem,
+};
