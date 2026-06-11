@@ -32,4 +32,8 @@ const updateItem = asyncHandler(async (req, res) =>
   success(res, await service.updateItem(req.user._id, req.params.cartItemId, req.body), "Cart item updated successfully")
 );
 
-module.exports = { create, list, getById, updateById, deleteById, getMyCart, addItem, updateItem };
+const removeItem = asyncHandler(async (req, res) =>
+  success(res, await service.removeItem(req.user._id, req.params.cartItemId), "Cart item removed successfully")
+);
+
+module.exports = { create, list, getById, updateById, deleteById, getMyCart, addItem, updateItem, removeItem };

@@ -10,6 +10,7 @@ router.post("/", controller.create);
 router.get("/my", controller.getMyCart);
 router.post("/my/items", controller.addItem);
 router.patch("/my/items/:cartItemId", controller.updateItem);
+router.delete("/my/items/:cartItemId", controller.removeItem);
 router.get("/:id", controller.getById);
 router.patch("/:id", controller.updateById);
 router.delete("/:id", controller.deleteById);

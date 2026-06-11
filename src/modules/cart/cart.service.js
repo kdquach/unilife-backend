@@ -189,7 +189,9 @@ const addItem = async (userId, data) => {
   const existingCartItem = await CartItem.findOne({
     cartId: cart._id,
     menuScheduleItemId,
-  }).select("quantity").lean();
+  })
+    .select("quantity")
+    .lean();
   const currentQuantity = existingCartItem ? existingCartItem.quantity : 0;
 
   if (currentQuantity + quantity > msi.remainingCount) {
@@ -218,7 +220,7 @@ const updateItem = async (userId, cartItemId, data) => {
     throw error;
   }
 
-  let cart = await Cart.findOne({ userId }).select('_id').lean();
+  let cart = await Cart.findOne({ userId }).select("_id").lean();
   if (!cart) {
     const err = new Error("Cart not found.");
     err.statusCode = 404;
@@ -230,14 +232,23 @@ const updateItem = async (userId, cartItemId, data) => {
     return getMyCart(userId);
   }
 
-  const existingCartItem = await CartItem.findOne({ _id: cartItemId, cartId: cart._id }).select('menuScheduleItemId').lean();
+  const existingCartItem = await CartItem.findOne({
+    _id: cartItemId,
+    cartId: cart._id,
+  })
+    .select("menuScheduleItemId")
+    .lean();
   if (!existingCartItem) {
     const err = new Error("Cart item not found.");
     err.statusCode = 404;
     throw err;
   }
 
-  const msi = await MenuScheduleItem.findById(existingCartItem.menuScheduleItemId).select('remainingCount').lean();
+  const msi = await MenuScheduleItem.findById(
+    existingCartItem.menuScheduleItemId,
+  )
+    .select("remainingCount")
+    .lean();
   if (!msi) {
     const err = new Error("The dish does not exist in the menu schedule.");
     err.statusCode = 404;
@@ -246,7 +257,7 @@ const updateItem = async (userId, cartItemId, data) => {
 
   if (quantity > msi.remainingCount) {
     const err = new Error(
-      `The remaining quantity is insufficient (only ${msi.remainingCount} items left)`
+      `The remaining quantity is insufficient (only ${msi.remainingCount} items left)`,
     );
     err.statusCode = 400;
     throw err;
@@ -256,8 +267,29 @@ const updateItem = async (userId, cartItemId, data) => {
   await CartItem.findOneAndUpdate(
     { _id: cartItemId, cartId: cart._id },
     { $set: { quantity: quantity } },
-    { new: true }
+    { new: true },
   );
+
+  return getMyCart(userId);
+};
+
+const removeItem = async (userId, cartItemId) => {
+  const cart = await Cart.findOne({ userId }).select("_id").lean();
+  if (!cart) {
+    const err = new Error("Cart not found.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const deletedItem = await CartItem.findOneAndDelete({
+    _id: cartItemId,
+    cartId: cart._id,
+  });
+  if (!deletedItem) {
+    const err = new Error("Cart item not found.");
+    err.statusCode = 404;
+    throw err;
+  }
 
   return getMyCart(userId);
 };
@@ -271,4 +303,5 @@ module.exports = {
   getMyCart,
   addItem,
   updateItem,
+  removeItem,
 };
