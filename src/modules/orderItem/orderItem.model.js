@@ -11,7 +11,19 @@ const orderItemSchema = new mongoose.Schema(
     menuScheduleItemId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "MenuScheduleItem",
+      required: false,
+      index: true,
+    },
+    itemType: {
+      type: String,
+      enum: ["MENU_ITEM", "REGULAR_FOOD"],
       required: true,
+      default: "MENU_ITEM",
+    },
+    foodId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Food",
+      required: false,
       index: true,
     },
     quantity: { type: Number, default: 0 },
