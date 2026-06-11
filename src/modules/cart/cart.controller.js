@@ -21,5 +21,8 @@ const updateById = asyncHandler(async (req, res) =>
 const deleteById = asyncHandler(async (req, res) =>
   success(res, await service.deleteById(req.params.id), "Deleted successfully"),
 );
+const getMyCart = asyncHandler(async (req, res) =>
+  success(res, await service.getMyCart(req.user._id), "Get cart details successfully"),
+);
 
-module.exports = { create, list, getById, updateById, deleteById };
+module.exports = { create, list, getById, updateById, deleteById, getMyCart };
