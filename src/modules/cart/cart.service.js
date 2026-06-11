@@ -36,17 +36,23 @@ const updateById = (id, data) =>
 const deleteById = (id) => Cart.findByIdAndDelete(id);
 
 const getMyCart = async (userId) => {
-  // Find or create cart for the user
-  let cart = await Cart.findOne({ userId });
+  // Find or create cart for the user using lean query for memory optimization
+  let cart = await Cart.findOne({ userId }).lean();
   if (!cart) {
     cart = await Cart.create({ userId });
   }
 
-  // Find all cart items for this cart and populate nested items
-  const cartItems = await CartItem.find({ cartId: cart._id }).populate({
-    path: "menuScheduleItemId",
-    populate: [{ path: "foodId" }, { path: "menuScheduleId" }],
-  });
+  // Find all cart items for this cart and deeply populate nested items with targeted fields
+  const cartItems = await CartItem.find({ cartId: cart._id })
+    .populate({
+      path: "menuScheduleItemId",
+      select: "isActive remainingCount maxServing foodId menuScheduleId",
+      populate: [
+        { path: "foodId", select: "isActive name price imageUrl description" },
+        { path: "menuScheduleId", select: "date status" },
+      ],
+    })
+    .lean();
 
   let totalPrice = 0;
   let totalItems = 0;
@@ -143,14 +149,16 @@ const addItem = async (userId, data) => {
     throw error;
   }
 
-  let cart = await Cart.findOne({ userId });
+  let cart = await Cart.findOne({ userId }).select("_id").lean();
   if (!cart) {
     cart = await Cart.create({ userId });
   }
 
   const msi = await MenuScheduleItem.findById(menuScheduleItemId)
-    .populate("foodId")
-    .populate("menuScheduleId");
+    .select("isActive remainingCount foodId menuScheduleId")
+    .populate({ path: "foodId", select: "isActive" })
+    .populate({ path: "menuScheduleId", select: "status" })
+    .lean();
 
   if (!msi) {
     const err = new Error("The dish does not exist in the menu schedule");
@@ -181,7 +189,7 @@ const addItem = async (userId, data) => {
   const existingCartItem = await CartItem.findOne({
     cartId: cart._id,
     menuScheduleItemId,
-  }).lean();
+  }).select("quantity").lean();
   const currentQuantity = existingCartItem ? existingCartItem.quantity : 0;
 
   if (currentQuantity + quantity > msi.remainingCount) {
@@ -202,6 +210,58 @@ const addItem = async (userId, data) => {
   return getMyCart(userId);
 };
 
+const updateItem = async (userId, cartItemId, data) => {
+  const { quantity } = data;
+  if (quantity == null || quantity < 0) {
+    const error = new Error("Quantity must be a non-negative number.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  let cart = await Cart.findOne({ userId }).select('_id').lean();
+  if (!cart) {
+    const err = new Error("Cart not found.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (quantity === 0) {
+    await CartItem.findOneAndDelete({ _id: cartItemId, cartId: cart._id });
+    return getMyCart(userId);
+  }
+
+  const existingCartItem = await CartItem.findOne({ _id: cartItemId, cartId: cart._id }).select('menuScheduleItemId').lean();
+  if (!existingCartItem) {
+    const err = new Error("Cart item not found.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const msi = await MenuScheduleItem.findById(existingCartItem.menuScheduleItemId).select('remainingCount').lean();
+  if (!msi) {
+    const err = new Error("The dish does not exist in the menu schedule.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (quantity > msi.remainingCount) {
+    const err = new Error(
+      `The remaining quantity is insufficient (only ${msi.remainingCount} items left)`
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Atomic update using $set
+  await CartItem.findOneAndUpdate(
+    { _id: cartItemId, cartId: cart._id },
+    { $set: { quantity: quantity } },
+    { new: true }
+  );
+
+  return getMyCart(userId);
+};
+
 module.exports = {
   create,
   list,
@@ -210,4 +270,5 @@ module.exports = {
   deleteById,
   getMyCart,
   addItem,
+  updateItem,
 };
