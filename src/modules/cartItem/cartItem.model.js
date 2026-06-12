@@ -11,7 +11,13 @@ const cartItemSchema = new mongoose.Schema(
     menuScheduleItemId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "MenuScheduleItem",
-      required: true,
+      required: false,
+      index: true,
+    },
+    foodId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Food",
+      required: false,
       index: true,
     },
     quantity: { type: Number, default: 0 },
@@ -21,6 +27,16 @@ const cartItemSchema = new mongoose.Schema(
     toObject: { virtuals: true },
     timestamps: true,
   },
+);
+
+cartItemSchema.index(
+  { cartId: 1, menuScheduleItemId: 1 },
+  { unique: true, partialFilterExpression: { menuScheduleItemId: { $exists: true } } }
+);
+
+cartItemSchema.index(
+  { cartId: 1, foodId: 1 },
+  { unique: true, partialFilterExpression: { foodId: { $exists: true } } }
 );
 
 cartItemSchema.virtual("cartItemId").get(function () {
