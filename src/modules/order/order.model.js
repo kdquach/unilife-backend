@@ -32,4 +32,17 @@ orderSchema.virtual("orderId").get(function () {
   return this._id.toString();
 });
 
+orderSchema.virtual("items", {
+  ref: "OrderItem",
+  localField: "_id",
+  foreignField: "orderId",
+});
+
+orderSchema.virtual("queue", {
+  ref: "Queue",
+  localField: "_id",
+  foreignField: "orderId",
+  justOne: true,
+});
+
 module.exports = mongoose.model("Order", orderSchema);

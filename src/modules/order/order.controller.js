@@ -1,16 +1,37 @@
 const asyncHandler = require("../../utils/asyncHandler");
-const { success } = require("../../utils/apiResponse");
+const { success, fail } = require("../../utils/apiResponse");
 const service = require("./order.service");
+const ROLES = require("../../constants/roles.constant");
 
-const create = asyncHandler(async (req, res) =>
-  success(res, await service.create(req.body), "Created successfully", 201),
-);
-const list = asyncHandler(async (req, res) =>
-  success(res, await service.list(req.query), "Get list successfully"),
-);
-const getById = asyncHandler(async (req, res) =>
-  success(res, await service.getById(req.params.id), "Get detail successfully"),
-);
+const create = asyncHandler(async (req, res) => {
+  const data = { ...req.body };
+  if (req.user && req.user.role === ROLES.CUSTOMER) {
+    data.userId = req.user._id.toString();
+    data.createdBy = req.user._id.toString();
+  }
+  return success(res, await service.create(data), "Created successfully", 201);
+});
+const list = asyncHandler(async (req, res) => {
+  const query = { ...req.query };
+  if (req.user && req.user.role === ROLES.CUSTOMER) {
+    query.userId = req.user._id.toString();
+  }
+  return success(res, await service.list(query), "Get list successfully");
+});
+const getById = asyncHandler(async (req, res) => {
+  const order = await service.getById(req.params.id);
+  if (!order) {
+    return fail(res, "Order not found", 404);
+  }
+  if (
+    req.user &&
+    req.user.role === ROLES.CUSTOMER &&
+    order.userId?.toString() !== req.user._id.toString()
+  ) {
+    return fail(res, "Permission denied", 403);
+  }
+  return success(res, order, "Get detail successfully");
+});
 const updateById = asyncHandler(async (req, res) =>
   success(
     res,
