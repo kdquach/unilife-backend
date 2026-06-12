@@ -5,11 +5,26 @@ const authService = require("./auth.service");
 const register = asyncHandler(async (req, res) =>
   success(
     res,
-    await authService.register(req.body, req),
-    "Register successfully",
+    await authService.register(req.body),
+    "Registration OTP sent successfully",
     201,
   ),
 );
+const verifyRegisterOtp = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await authService.verifyRegisterOtp(req.body, req),
+    "Register successfully",
+  ),
+);
+const resendRegisterOtp = asyncHandler(async (req, res) => {
+  await authService.resendRegisterOtp(req.body);
+  return success(
+    res,
+    null,
+    "If the email is pending verification, OTP has been sent",
+  );
+});
 const login = asyncHandler(async (req, res) =>
   success(res, await authService.login(req.body, req), "Login successfully"),
 );
@@ -28,11 +43,35 @@ const forgotPassword = asyncHandler(async (req, res) => {
   await authService.requestForgotPasswordOtp(req.body);
   return success(res, null, "If the email exists, OTP has been sent");
 });
+const resendForgotPasswordOtp = asyncHandler(async (req, res) => {
+  await authService.resendForgotPasswordOtp(req.body);
+  return success(res, null, "If the email exists, OTP has been sent");
+});
 const resetPassword = asyncHandler(async (req, res) => {
   await authService.resetPassword(req.body);
   return success(res, null, "Password reset successfully");
 });
 const changePassword = asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword) {
+    const err = new Error("Current password is required");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!newPassword || newPassword.length < 8) {
+    const err = new Error("New password must be at least 8 characters long");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (currentPassword === newPassword) {
+    const err = new Error("New password must be different from current password");
+    err.statusCode = 400;
+    throw err;
+  }
+
   await authService.changePassword(req.user._id, req.body);
   return success(res, null, "Password changed successfully");
 });
@@ -42,10 +81,13 @@ const me = asyncHandler(async (req, res) =>
 
 module.exports = {
   register,
+  verifyRegisterOtp,
+  resendRegisterOtp,
   login,
   refresh,
   logout,
   forgotPassword,
+  resendForgotPasswordOtp,
   resetPassword,
   changePassword,
   me,

@@ -23,4 +23,11 @@ menuScheduleSchema.virtual("menuScheduleId").get(function () {
   return this._id.toString();
 });
 
+menuScheduleSchema.virtual("items", {
+  ref: "MenuScheduleItem",
+  localField: "_id",
+  foreignField: "menuScheduleId",
+});
+
 module.exports = mongoose.model("MenuSchedule", menuScheduleSchema);
+

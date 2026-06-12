@@ -6,19 +6,39 @@ const create = (data) => MenuSchedule.create(data);
 const list = async (query = {}) => {
   const { page, limit, skip } = getPagination(query);
   const filter = {};
-  if (query.isActive !== undefined) filter.isActive = query.isActive === "true";
   if (query.status) filter.status = query.status;
-  if (query.type) filter.type = query.type;
-  if (query.keyword)
-    filter.$or = [
-      { name: new RegExp(query.keyword, "i") },
-      { title: new RegExp(query.keyword, "i") },
-      { email: new RegExp(query.keyword, "i") },
-      { fullName: new RegExp(query.keyword, "i") },
-    ];
+
+  if (query.date) {
+    const start = new Date(query.date);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(query.date);
+    end.setHours(23, 59, 59, 999);
+    filter.date = { $gte: start, $lte: end };
+  } else if (query.dateFrom && query.dateTo) {
+    filter.date = {
+      $gte: new Date(query.dateFrom),
+      $lte: new Date(query.dateTo),
+    };
+  }
+
+  const populateItemsOption = {
+    path: "items",
+    match: { isActive: true },
+    populate: {
+      path: "foodId",
+      populate: {
+        path: "categoryId",
+        select: "name",
+      },
+    },
+  };
 
   const [items, total] = await Promise.all([
-    MenuSchedule.find(filter).skip(skip).limit(limit).sort({ createdAt: -1 }),
+    MenuSchedule.find(filter)
+      .populate(populateItemsOption)
+      .skip(skip)
+      .limit(limit)
+      .sort({ date: 1 }),
     MenuSchedule.countDocuments(filter),
   ]);
 
@@ -28,9 +48,46 @@ const list = async (query = {}) => {
   };
 };
 
-const getById = (id) => MenuSchedule.findById(id);
+const getToday = async () => {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+
+  const populateItemsOption = {
+    path: "items",
+    match: { isActive: true },
+    populate: {
+      path: "foodId",
+      populate: {
+        path: "categoryId",
+        select: "name",
+      },
+    },
+  };
+
+  return MenuSchedule.findOne({
+    date: { $gte: start, $lte: end },
+    status: "PUBLISHED",
+  }).populate(populateItemsOption);
+};
+
+const getById = (id) =>
+  MenuSchedule.findById(id).populate({
+    path: "items",
+    match: { isActive: true },
+    populate: {
+      path: "foodId",
+      populate: {
+        path: "categoryId",
+        select: "name",
+      },
+    },
+  });
+
 const updateById = (id, data) =>
   MenuSchedule.findByIdAndUpdate(id, data, { new: true, runValidators: true });
 const deleteById = (id) => MenuSchedule.findByIdAndDelete(id);
 
-module.exports = { create, list, getById, updateById, deleteById };
+module.exports = { create, list, getToday, getById, updateById, deleteById };
+
