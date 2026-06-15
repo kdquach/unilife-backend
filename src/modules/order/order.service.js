@@ -275,19 +275,23 @@ const list = async (query = {}) => {
   const { page, limit, skip } = getPagination(query);
   const filter = {};
   if (query.userId) filter.userId = query.userId;
-  if (query.isActive !== undefined) filter.isActive = query.isActive === "true";
   if (query.status) filter.status = query.status;
-  if (query.type) filter.type = query.type;
-  if (query.keyword)
-    filter.$or = [
-      { name: new RegExp(query.keyword, "i") },
-      { title: new RegExp(query.keyword, "i") },
-      { email: new RegExp(query.keyword, "i") },
-      { fullName: new RegExp(query.keyword, "i") },
-    ];
+  if (query.paymentStatus)
+  filter.paymentStatus = query.paymentStatus;
+
+  if (query.paymentMethod)
+  filter.paymentMethod = query.paymentMethod;
+
+  if (query.isWalkIn !== undefined)
+  filter.isWalkIn = query.isWalkIn === "true";
+
+  if (query.keyword) {
+    filter.orderCode = new RegExp(query.keyword, "i");
+  }
 
   const [items, total] = await Promise.all([
     Order.find(filter)
+      .populate("userId", "fullName")
       .populate("queue")
       .populate({
         path: "items",

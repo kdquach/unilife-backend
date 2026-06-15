@@ -30,6 +30,13 @@ const getPaymentStatus = asyncHandler(async (req, res) => {
 });
 const list = asyncHandler(async (req, res) => {
   const query = { ...req.query };
+
+  if (req.user.role === ROLES.KITCHEN_STAFF) {
+    const err = new Error("You are not allowed to view orders");
+    err.statusCode = 403;
+    throw err;
+  }
+  
   if (req.user && req.user.role === ROLES.CUSTOMER) {
     query.userId = req.user._id.toString();
   }
