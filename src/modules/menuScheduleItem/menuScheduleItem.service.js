@@ -7,18 +7,18 @@ const list = async (query = {}) => {
   const { page, limit, skip } = getPagination(query);
   const filter = {};
   if (query.isActive !== undefined) filter.isActive = query.isActive === "true";
-  if (query.status) filter.status = query.status;
-  if (query.type) filter.type = query.type;
-  if (query.keyword)
-    filter.$or = [
-      { name: new RegExp(query.keyword, "i") },
-      { title: new RegExp(query.keyword, "i") },
-      { email: new RegExp(query.keyword, "i") },
-      { fullName: new RegExp(query.keyword, "i") },
-    ];
+  if (query.menuScheduleId) filter.menuScheduleId = query.menuScheduleId;
+  if (query.foodId) filter.foodId = query.foodId;
 
   const [items, total] = await Promise.all([
     MenuScheduleItem.find(filter)
+      .populate({
+        path: "foodId",
+        populate: {
+          path: "categoryId",
+          select: "name",
+        },
+      })
       .skip(skip)
       .limit(limit)
       .sort({ createdAt: -1 }),
@@ -31,7 +31,15 @@ const list = async (query = {}) => {
   };
 };
 
-const getById = (id) => MenuScheduleItem.findById(id);
+const getById = (id) =>
+  MenuScheduleItem.findById(id).populate({
+    path: "foodId",
+    populate: {
+      path: "categoryId",
+      select: "name",
+    },
+  });
+
 const updateById = (id, data) =>
   MenuScheduleItem.findByIdAndUpdate(id, data, {
     new: true,
@@ -40,3 +48,4 @@ const updateById = (id, data) =>
 const deleteById = (id) => MenuScheduleItem.findByIdAndDelete(id);
 
 module.exports = { create, list, getById, updateById, deleteById };
+

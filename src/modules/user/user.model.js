@@ -22,6 +22,7 @@ const userSchema = new mongoose.Schema(
     },
     avatarUrl: { type: String, default: null },
     isActive: { type: Boolean, default: true, index: true },
+    isEmailVerified: { type: Boolean, default: true, index: true },
   },
   {
     toJSON: { virtuals: true },
