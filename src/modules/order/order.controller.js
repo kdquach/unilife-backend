@@ -11,6 +11,23 @@ const create = asyncHandler(async (req, res) => {
   }
   return success(res, await service.create(data), "Created successfully", 201);
 });
+const checkout = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.checkout(req.user._id, req.body),
+    "Order created successfully. Please complete payment.",
+    201,
+  ),
+);
+const getPaymentStatus = asyncHandler(async (req, res) => {
+  const userId =
+    req.user.role === ROLES.CUSTOMER ? req.user._id.toString() : null;
+  return success(
+    res,
+    await service.getPaymentStatus(req.params.id, userId),
+    "Payment status retrieved successfully",
+  );
+});
 const list = asyncHandler(async (req, res) => {
   const query = { ...req.query };
   if (req.user && req.user.role === ROLES.CUSTOMER) {
@@ -43,4 +60,4 @@ const deleteById = asyncHandler(async (req, res) =>
   success(res, await service.deleteById(req.params.id), "Deleted successfully"),
 );
 
-module.exports = { create, list, getById, updateById, deleteById };
+module.exports = { create, checkout, list, getById, updateById, deleteById, getPaymentStatus };

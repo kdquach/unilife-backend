@@ -38,6 +38,8 @@ router.use("/carts", require("../modules/cart/cart.route"));
 router.use("/cart-items", require("../modules/cartItem/cartItem.route"));
 router.use("/orders", require("../modules/order/order.route"));
 router.use("/order-items", require("../modules/orderItem/orderItem.route"));
+router.use("/payments", require("../modules/payment/payment.route"));
+router.use("/sepay-payment", require("../modules/payment/payment.route"));
 router.use("/queues", require("../modules/queue/queue.route"));
 router.use("/ratings", require("../modules/rating/rating.route"));
 router.use(
