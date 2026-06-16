@@ -39,7 +39,8 @@ router.use("/cart-items", require("../modules/cartItem/cartItem.route"));
 router.use("/orders", require("../modules/order/order.route"));
 router.use("/order-items", require("../modules/orderItem/orderItem.route"));
 router.use("/payments", require("../modules/payment/payment.route"));
-router.use("/sepay-payment", require("../modules/payment/payment.route"));
+// Đăng ký trực tiếp (direct mapping) để tránh lỗi trailing-slash (404) của Express Router
+router.post("/sepay-payment", require("../modules/payment/payment.controller").handleSepayWebhook);
 router.use("/queues", require("../modules/queue/queue.route"));
 router.use("/ratings", require("../modules/rating/rating.route"));
 router.use(
