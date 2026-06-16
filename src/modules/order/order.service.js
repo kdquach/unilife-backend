@@ -192,15 +192,6 @@ const updateById = async (id, data) => {
       throw error;
     }
 
-    // PAID order timeframe check (5 minutes = 300,000 ms)
-    if (currentStatus === "PAID") {
-      const timeDiff = Date.now() - new Date(order.createdAt).getTime();
-      if (timeDiff > 5 * 60 * 1000) {
-        const error = new Error("Cannot cancel order after preparation has started (5 minutes limit exceeded).");
-        error.statusCode = 400;
-        throw error;
-      }
-    }
 
     // Initiate refund if already paid
     if (order.paymentStatus === "PAID") {
