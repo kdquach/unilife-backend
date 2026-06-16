@@ -49,6 +49,10 @@ app.get("/", (req, res) => {
   res.json({ message: "UniLife Backend API", status: "OK" });
 });
 
+// Force map Webhook để triệt tiêu mọi rủi ro về môi trường (API_PREFIX mismatch)
+app.post("/api/v1/sepay-payment", require("./modules/payment/payment.controller").handleSepayWebhook);
+app.get("/api/v1/sepay-payment", (req, res) => res.json({ success: true, message: "SePay Webhook endpoint is active on LIVE server!" }));
+
 app.use(process.env.API_PREFIX || "/api/v1", routes);
 app.use(notFoundHandler);
 app.use(errorHandler);
