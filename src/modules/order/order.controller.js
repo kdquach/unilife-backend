@@ -67,4 +67,20 @@ const deleteById = asyncHandler(async (req, res) =>
   success(res, await service.deleteById(req.params.id), "Deleted successfully"),
 );
 
-module.exports = { create, checkout, list, getById, updateById, deleteById, getPaymentStatus };
+const createWalkIn = asyncHandler(async (req, res) => {
+  const data = {
+    ...req.body,
+    userId: null,
+    isWalkIn: true,
+    createdBy: req.user._id,
+  };
+
+  return success(
+    res,
+    await service.createWalkIn(data),
+    "Walk-in order created successfully",
+    201
+  );
+});
+
+module.exports = { create, createWalkIn, checkout, list, getById, updateById, deleteById, getPaymentStatus };
