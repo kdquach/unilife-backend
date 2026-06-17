@@ -433,6 +433,16 @@ const list = async (query = {}) => {
 
   if (query.isWalkIn !== undefined) filter.isWalkIn = query.isWalkIn === "true";
 
+  if (query.fromDate || query.toDate) {
+  filter.createdAt = {};
+
+  if (query.fromDate)
+    filter.createdAt.$gte = new Date(query.fromDate);
+
+  if (query.toDate)
+    filter.createdAt.$lte = new Date(query.toDate);
+}
+
   if (query.keyword) {
   const users = await User.find({
     $or: [
@@ -450,7 +460,7 @@ const list = async (query = {}) => {
 
   const [items, total] = await Promise.all([
     Order.find(filter)
-      .populate("userId", "fullName")
+      .populate("userId", "fullName email phone avatarUrl")
       .populate("queue")
       .populate({
         path: "items",
