@@ -11,6 +11,7 @@ const {
   generateQrCodeUrl,
   getSepayConfig,
 } = require("../payment/payment.service");
+const User = require("../user/user.model");
 
 const PAYMENT_EXPIRY_MINUTES = 15;
 
@@ -426,18 +427,26 @@ const list = async (query = {}) => {
   const filter = {};
   if (query.userId) filter.userId = query.userId;
   if (query.status) filter.status = query.status;
-  if (query.paymentStatus)
-  filter.paymentStatus = query.paymentStatus;
+  if (query.paymentStatus) filter.paymentStatus = query.paymentStatus;
 
-  if (query.paymentMethod)
-  filter.paymentMethod = query.paymentMethod;
+  if (query.paymentMethod) filter.paymentMethod = query.paymentMethod;
 
-  if (query.isWalkIn !== undefined)
-  filter.isWalkIn = query.isWalkIn === "true";
+  if (query.isWalkIn !== undefined) filter.isWalkIn = query.isWalkIn === "true";
 
   if (query.keyword) {
-    filter.orderCode = new RegExp(query.keyword, "i");
-  }
+  const users = await User.find({
+    $or: [
+      { fullName: new RegExp(query.keyword, "i") },
+      { email: new RegExp(query.keyword, "i") },
+      { phone: new RegExp(query.keyword, "i") },
+    ],
+  }).select("_id");
+
+  filter.$or = [
+    { orderCode: new RegExp(query.keyword, "i") },
+    { userId: { $in: users.map((u) => u._id) } },
+  ];
+}
 
   const [items, total] = await Promise.all([
     Order.find(filter)
@@ -496,8 +505,12 @@ const updateById = async (id, data) => {
     }
 
     const currentStatus = order.status.toUpperCase();
-    if (["PREPARING", "READY", "COMPLETED", "CANCELLED"].includes(currentStatus)) {
-      const error = new Error(`Cannot cancel order. Current status is ${order.status}.`);
+    if (
+      ["PREPARING", "READY", "COMPLETED", "CANCELLED"].includes(currentStatus)
+    ) {
+      const error = new Error(
+        `Cannot cancel order. Current status is ${order.status}.`,
+      );
       error.statusCode = 400;
       throw error;
     }
@@ -529,10 +542,15 @@ const updateById = async (id, data) => {
     if (order.items && Array.isArray(order.items)) {
       for (const item of order.items) {
         if (item.itemType === "MENU_ITEM" && item.menuScheduleItemId) {
-          const menuScheduleItem = await MenuScheduleItem.findById(item.menuScheduleItemId);
+          const menuScheduleItem = await MenuScheduleItem.findById(
+            item.menuScheduleItemId,
+          );
           if (menuScheduleItem) {
             menuScheduleItem.remainingCount += item.quantity;
-            menuScheduleItem.reservedCount = Math.max(0, menuScheduleItem.reservedCount - item.quantity);
+            menuScheduleItem.reservedCount = Math.max(
+              0,
+              menuScheduleItem.reservedCount - item.quantity,
+            );
             await menuScheduleItem.save();
           }
         } else if (item.itemType === "REGULAR_FOOD" && item.foodId) {
@@ -559,4 +577,13 @@ const createWalkIn = async (data) => {
   return create(data);
 };
 
-module.exports = { create, createWalkIn, checkout, list, getById, updateById, deleteById, getPaymentStatus };
+module.exports = {
+  create,
+  createWalkIn,
+  checkout,
+  list,
+  getById,
+  updateById,
+  deleteById,
+  getPaymentStatus,
+};
