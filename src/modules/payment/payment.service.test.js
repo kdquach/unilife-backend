@@ -98,6 +98,45 @@ describe("Payment Service - Webhook & Cron Jobs", () => {
     expect(updatedOrder.paymentInfo.qrCodeUrl).toBeNull();
   });
 
+  it("should classify 2nd payment as DUPLICATE_PAYMENT and 3rd as EXTRA_PAYMENT with explicit refund amounts", async () => {
+    const order = await Order.create({
+      orderCode: "202603",
+      status: "PENDING",
+      totalPrice: 50000,
+      paymentMethod: "SEPAY",
+      paymentStatus: "PAID",
+      transferContent: "UN202603",
+      transactionRef: "MBVCB.FIRST",
+      note: "Original Note"
+    });
+
+    // 2nd Payment
+    await paymentService.processWebhook({
+      content: "UN202603",
+      transferAmount: 50000,
+      transferType: "in",
+      referenceCode: "MBVCB.SECOND",
+      id: 1001
+    });
+
+    let updatedOrder = await Order.findById(order._id);
+    expect(updatedOrder.note).toContain("[DUPLICATE_PAYMENT]");
+    expect(updatedOrder.note).toContain("Refund Required: 50000 VND");
+
+    // 3rd Payment
+    await paymentService.processWebhook({
+      content: "UN202603",
+      transferAmount: 20000,
+      transferType: "in",
+      referenceCode: "MBVCB.THIRD",
+      id: 1002
+    });
+
+    updatedOrder = await Order.findById(order._id);
+    expect(updatedOrder.note).toContain("[EXTRA_PAYMENT]");
+    expect(updatedOrder.note).toContain("Refund Required: 20000 VND");
+  });
+
   it("should process SePay dashboard dummy payload (UN pattern)", async () => {
     const order = await Order.create({
       orderCode: "234199",

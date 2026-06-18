@@ -128,7 +128,7 @@ const processWebhook = async (webhookData) => {
 
   // 2. Try regex match on content for UN pattern
   if (!order && content) {
-    const match = content.match(/UN([a-zA-Z0-9-]+)/i);
+    const match = content.match(/UN(\d+)/i);
     if (match) {
       const extractedCode = `UN${match[1]}`.toUpperCase();
       order = await Order.findOne({ transferContent: extractedCode });
@@ -139,8 +139,22 @@ const processWebhook = async (webhookData) => {
     return { success: true, message: "Order not found for this transfer" };
   }
 
-  // Idempotent: if already paid, skip
+  // Idempotent: if already paid, skip. BUT check for double-payment first!
   if (order.paymentStatus === "PAID") {
+    const incomingRef = referenceCode || String(transactionId || "");
+    // If it's a completely different transaction reference, the customer transferred money TWICE!
+    if (order.transactionRef && order.transactionRef !== incomingRef) {
+      // Determine if this is the 2nd payment or 3rd+ payment
+      const isThirdOrMore = order.note && order.note.includes("DUPLICATE_PAYMENT");
+      const paymentType = isThirdOrMore ? "EXTRA_PAYMENT" : "DUPLICATE_PAYMENT";
+      
+      const doubleMsg = `[${paymentType}] CRITICAL LIABILITY: Customer transferred money again for an already paid order. Received: ${transferAmount} VND. Refund Required: ${transferAmount} VND. (New Ref: ${incomingRef})`;
+      
+      await Order.updateOne(
+        { _id: order._id },
+        { $set: { note: order.note ? `${order.note} | ${doubleMsg}` : doubleMsg } }
+      );
+    }
     return { success: true, message: "Order already paid" };
   }
 
