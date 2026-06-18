@@ -45,17 +45,26 @@ describe("Payment Service - Webhook & Cron Jobs", () => {
     const crypto = require("crypto");
     process.env.SEPAY_WEBHOOK_SECRET = "TEST_SECRET";
     
-    const rawBody = Buffer.from(JSON.stringify({ test: "data" }));
-    const signature = crypto.createHmac("sha256", "TEST_SECRET").update(rawBody).digest("hex");
+    const body = { test: "data" };
+    const timestamp = "1234567890";
+    const payloadStr = JSON.stringify(body);
+    const dataToHash = `${timestamp}.${payloadStr}`;
+    const signature = crypto.createHmac("sha256", "TEST_SECRET").update(dataToHash).digest("hex");
     
     const reqValid = {
-      headers: { "x-sepay-signature": `sha256=${signature}` },
-      rawBody
+      headers: { 
+        "x-sepay-signature": `sha256=${signature}`,
+        "x-sepay-timestamp": timestamp
+      },
+      body
     };
     
     const reqInvalid = {
-      headers: { "x-sepay-signature": `sha256=invalid` },
-      rawBody
+      headers: { 
+        "x-sepay-signature": `sha256=invalid`,
+        "x-sepay-timestamp": timestamp
+      },
+      body
     };
     
     expect(paymentService.verifyWebhookAuth(reqValid)).toBe(true);

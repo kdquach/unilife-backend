@@ -62,10 +62,16 @@ const verifyWebhookAuth = (req) => {
 
   // 2. Check HMAC Signature if provided
   const signature = req.headers["x-sepay-signature"];
-  if (signature && req.rawBody && config.webhookSecret) {
+  const timestamp = req.headers["x-sepay-timestamp"];
+  
+  if (signature && timestamp && req.body && config.webhookSecret) {
+    // Thuật toán thực tế của SePay: HMAC-SHA256(Secret, timestamp + "." + JSON.stringify(body))
+    const payloadStr = JSON.stringify(req.body);
+    const dataToHash = timestamp + "." + payloadStr;
+    
     const expectedSignature = crypto
       .createHmac("sha256", config.webhookSecret)
-      .update(req.rawBody)
+      .update(dataToHash)
       .digest("hex");
       
     // SePay sends format: "sha256=xxx"
