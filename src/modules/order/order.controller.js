@@ -30,6 +30,13 @@ const getPaymentStatus = asyncHandler(async (req, res) => {
 });
 const list = asyncHandler(async (req, res) => {
   const query = { ...req.query };
+
+  if (req.user.role === ROLES.KITCHEN_STAFF) {
+    const err = new Error("You are not allowed to view orders");
+    err.statusCode = 403;
+    throw err;
+  }
+  
   if (req.user && req.user.role === ROLES.CUSTOMER) {
     query.userId = req.user._id.toString();
   }
@@ -60,4 +67,20 @@ const deleteById = asyncHandler(async (req, res) =>
   success(res, await service.deleteById(req.params.id), "Deleted successfully"),
 );
 
-module.exports = { create, checkout, list, getById, updateById, deleteById, getPaymentStatus };
+const createWalkIn = asyncHandler(async (req, res) => {
+  const data = {
+    ...req.body,
+    userId: null,
+    isWalkIn: true,
+    createdBy: req.user._id,
+  };
+
+  return success(
+    res,
+    await service.createWalkIn(data),
+    "Walk-in order created successfully",
+    201
+  );
+});
+
+module.exports = { create, createWalkIn, checkout, list, getById, updateById, deleteById, getPaymentStatus };
