@@ -9,8 +9,7 @@ const paymentService = require("./payment.service");
  */
 const handleSepayWebhook = asyncHandler(async (req, res) => {
   // Verify SePay authorization
-  const authHeader = req.headers.authorization;
-  if (!paymentService.verifyWebhookAuth(authHeader)) {
+  if (!paymentService.verifyWebhookAuth(req)) {
     return fail(res, "Unauthorized webhook request", 401);
   }
 

@@ -4,6 +4,7 @@ const MenuScheduleItem = require("../menuScheduleItem/menuScheduleItem.model");
 const Food = require("../food/food.model");
 const Queue = require("../queue/queue.model");
 const logger = require("../../utils/logger");
+const crypto = require("crypto");
 
 /**
  * SePay configuration from environment variables
@@ -45,17 +46,43 @@ const generateTransferContent = (orderCode) => {
 };
 
 /**
- * Verify SePay webhook authorization
- * @param {string} authHeader - Authorization header value
+ * Verify SePay webhook authorization (API Key or HMAC Signature)
+ * @param {Object} req - Express request object
  * @returns {boolean} Whether the auth is valid
  */
-const verifyWebhookAuth = (authHeader) => {
-  if (!authHeader) return false;
+const verifyWebhookAuth = (req) => {
   const config = getSepayConfig();
-  // SePay sends API key in Authorization header
-  // Support both "Bearer <key>" and "Apikey <key>" formats
-  const token = authHeader.replace(/^(Bearer|Apikey)\s+/i, "");
-  return token === config.apiKey;
+  
+  // 1. Check API Key if provided
+  const authHeader = req.headers.authorization;
+  if (authHeader) {
+    const token = authHeader.replace(/^(Bearer|Apikey)\s+/i, "");
+    if (token === config.apiKey) return true;
+  }
+
+  // 2. Check HMAC Signature if provided
+  const signature = req.headers["x-sepay-signature"];
+  if (signature && req.rawBody && config.webhookSecret) {
+    const expectedSignature = crypto
+      .createHmac("sha256", config.webhookSecret)
+      .update(req.rawBody)
+      .digest("hex");
+      
+    // SePay sends format: "sha256=xxx"
+    const providedSignature = signature.replace(/^sha256=/i, "");
+    try {
+      if (
+        providedSignature.length === expectedSignature.length &&
+        crypto.timingSafeEqual(Buffer.from(providedSignature), Buffer.from(expectedSignature))
+      ) {
+        return true;
+      }
+    } catch (error) {
+      // Ignore conversion errors and return false implicitly
+    }
+  }
+
+  return false;
 };
 
 /**
@@ -111,19 +138,20 @@ const processWebhook = async (webhookData) => {
     return { success: true, message: "Order already paid" };
   }
 
-  // If order is expired or cancelled, it's a late payment! (Lỗi đứng tiền)
+  // Tiền vào tài khoản nhưng đơn hàng đã bị hủy trước đó -> Khoản tiền treo cần hoàn trả
   if (order.status === "CANCELLED" || order.paymentStatus === "EXPIRED") {
-    const lateMsg = `CRITICAL ERROR: Payment received for cancelled order (Received: ${transferAmount}, Ref: ${referenceCode || String(transactionId || "")})`;
+    const lateMsg = `CRITICAL LIABILITY: Payment received for cancelled order. REFUND REQUIRED. (Received: ${transferAmount}, Ref: ${referenceCode || String(transactionId || "")})`;
     await Order.updateOne(
       { _id: order._id },
       { 
         $set: { 
-          paymentStatus: "LATE_PAYMENT",
+          paymentStatus: "REFUND_PENDING",
+          "paymentInfo.qrCodeUrl": null,
           note: order.note ? `${order.note} | ${lateMsg}` : lateMsg
         } 
       }
     );
-    return { success: true, message: "Late payment recorded for cancelled order." };
+    return { success: true, message: "Payment received for cancelled order. Marked as REFUND_PENDING." };
   }
 
   // Verify transfer amount EXACTLY matches order total (Strict rule from user)
@@ -137,6 +165,7 @@ const processWebhook = async (webhookData) => {
   }
 
   // ATOMIC UPDATE to avoid race condition with expirePendingOrders
+  // Vô hiệu hóa QR Code ngay sau khi thanh toán thành công để frontend ẩn đi
   const updatedOrder = await Order.findOneAndUpdate(
     { _id: order._id, paymentStatus: "PENDING", status: { $nin: ["CANCELLED"] } },
     { 
@@ -144,7 +173,8 @@ const processWebhook = async (webhookData) => {
         paymentStatus: "PAID", 
         status: "CONFIRMED", 
         paidAt: new Date(), 
-        transactionRef: referenceCode || String(transactionId || "") 
+        transactionRef: referenceCode || String(transactionId || ""),
+        "paymentInfo.qrCodeUrl": null
       } 
     },
     { new: true }
@@ -152,17 +182,18 @@ const processWebhook = async (webhookData) => {
 
   if (!updatedOrder) {
     // It means the order was updated concurrently (likely CANCELLED by cron)
-    const lateMsg = `CRITICAL ERROR: Payment received but order was just cancelled due to expiration (Received: ${transferAmount}, Ref: ${referenceCode || String(transactionId || "")})`;
+    const lateMsg = `CRITICAL LIABILITY: Payment received but order was just cancelled due to expiration. REFUND REQUIRED. (Received: ${transferAmount}, Ref: ${referenceCode || String(transactionId || "")})`;
     await Order.updateOne(
       { _id: order._id },
       { 
         $set: { 
-          paymentStatus: "LATE_PAYMENT",
+          paymentStatus: "REFUND_PENDING",
+          "paymentInfo.qrCodeUrl": null,
           note: order.note ? `${order.note} | ${lateMsg}` : lateMsg
         } 
       }
     );
-    return { success: true, message: "Late payment recorded due to concurrent expiration." };
+    return { success: true, message: "Payment received for concurrently cancelled order. Marked as REFUND_PENDING." };
   }
 
   return { success: true, message: "Payment confirmed successfully" };
@@ -187,9 +218,10 @@ const expirePendingOrders = async () => {
 
   for (const order of expiredOrders) {
     // Lock and mark EXPIRED atomically to avoid race condition with incoming webhook
+    // Xóa QR code để người dùng không chuyển tiền nhầm nữa
     const updated = await Order.findOneAndUpdate(
       { _id: order._id, paymentStatus: "PENDING", status: { $nin: ["CANCELLED"] } },
-      { $set: { paymentStatus: "EXPIRED", status: "CANCELLED" } },
+      { $set: { paymentStatus: "EXPIRED", status: "CANCELLED", "paymentInfo.qrCodeUrl": null } },
       { new: true }
     );
 

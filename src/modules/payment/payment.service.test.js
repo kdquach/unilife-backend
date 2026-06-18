@@ -29,10 +29,37 @@ beforeEach(async () => {
 });
 
 describe("Payment Service - Webhook & Cron Jobs", () => {
-  it("should verify webhook auth correctly", () => {
-    expect(paymentService.verifyWebhookAuth("Bearer TEST_API_KEY")).toBe(true);
-    expect(paymentService.verifyWebhookAuth("Apikey TEST_API_KEY")).toBe(true);
-    expect(paymentService.verifyWebhookAuth("InvalidKey")).toBe(false);
+  it("should verify webhook auth correctly with API Key", () => {
+    const req1 = { headers: { authorization: "Bearer TEST_API_KEY" } };
+    const req2 = { headers: { authorization: "Apikey TEST_API_KEY" } };
+    const req3 = { headers: { authorization: "InvalidKey" } };
+    const req4 = { headers: {} };
+    
+    expect(paymentService.verifyWebhookAuth(req1)).toBe(true);
+    expect(paymentService.verifyWebhookAuth(req2)).toBe(true);
+    expect(paymentService.verifyWebhookAuth(req3)).toBe(false);
+    expect(paymentService.verifyWebhookAuth(req4)).toBe(false);
+  });
+
+  it("should verify webhook auth correctly with HMAC Signature", () => {
+    const crypto = require("crypto");
+    process.env.SEPAY_WEBHOOK_SECRET = "TEST_SECRET";
+    
+    const rawBody = Buffer.from(JSON.stringify({ test: "data" }));
+    const signature = crypto.createHmac("sha256", "TEST_SECRET").update(rawBody).digest("hex");
+    
+    const reqValid = {
+      headers: { "x-sepay-signature": `sha256=${signature}` },
+      rawBody
+    };
+    
+    const reqInvalid = {
+      headers: { "x-sepay-signature": `sha256=invalid` },
+      rawBody
+    };
+    
+    expect(paymentService.verifyWebhookAuth(reqValid)).toBe(true);
+    expect(paymentService.verifyWebhookAuth(reqInvalid)).toBe(false);
   });
 
   it("should process valid incoming webhook and update order to PAID", async () => {
@@ -42,7 +69,8 @@ describe("Payment Service - Webhook & Cron Jobs", () => {
       totalPrice: 50000,
       paymentMethod: "SEPAY",
       paymentStatus: "PENDING",
-      transferContent: "UN202601"
+      transferContent: "UN202601",
+      paymentInfo: { qrCodeUrl: "http://qr.com" }
     });
 
     const webhookData = {
@@ -58,6 +86,7 @@ describe("Payment Service - Webhook & Cron Jobs", () => {
 
     const updatedOrder = await Order.findById(order._id);
     expect(updatedOrder.paymentStatus).toBe("PAID");
+    expect(updatedOrder.paymentInfo.qrCodeUrl).toBeNull();
   });
 
   it("should process SePay dashboard dummy payload (UN pattern)", async () => {
@@ -145,14 +174,15 @@ describe("Payment Service - Webhook & Cron Jobs", () => {
     expect(updatedOrder.note).toContain("Error: Invalid payment amount");
   });
 
-  it("should record LATE_PAYMENT if webhook arrives for CANCELLED order", async () => {
+  it("should record REFUND_PENDING and clear qrCodeUrl if webhook arrives for CANCELLED order", async () => {
     const order = await Order.create({
       orderCode: "202604",
       status: "CANCELLED",
       totalPrice: 50000,
       paymentMethod: "SEPAY",
       paymentStatus: "EXPIRED",
-      transferContent: "UN202604"
+      transferContent: "UN202604",
+      paymentInfo: { qrCodeUrl: "http://qr.com" }
     });
 
     const webhookData = {
@@ -162,12 +192,13 @@ describe("Payment Service - Webhook & Cron Jobs", () => {
     };
 
     const result = await paymentService.processWebhook(webhookData);
-    expect(result.message).toContain("Late payment recorded");
+    expect(result.message).toContain("REFUND_PENDING");
     
     const updatedOrder = await Order.findById(order._id);
-    expect(updatedOrder.paymentStatus).toBe("LATE_PAYMENT");
+    expect(updatedOrder.paymentStatus).toBe("REFUND_PENDING");
     expect(updatedOrder.status).toBe("CANCELLED");
-    expect(updatedOrder.note).toContain("CRITICAL ERROR: Payment received for cancelled order");
+    expect(updatedOrder.note).toContain("CRITICAL LIABILITY: Payment received for cancelled order");
+    expect(updatedOrder.paymentInfo.qrCodeUrl).toBeNull();
   });
 
   it("should expire pending orders and restore stock securely", async () => {
@@ -185,7 +216,8 @@ describe("Payment Service - Webhook & Cron Jobs", () => {
       paymentMethod: "SEPAY",
       paymentStatus: "PENDING",
       transferContent: "UNILIFE UL-PO-OLD",
-      expiresAt: expiredDate
+      expiresAt: expiredDate,
+      paymentInfo: { qrCodeUrl: "http://qr.com" }
     });
 
     await OrderItem.create({
@@ -203,10 +235,11 @@ describe("Payment Service - Webhook & Cron Jobs", () => {
     const result = await paymentService.expirePendingOrders();
     expect(result.expiredCount).toBe(1);
 
-    // Verify order cancelled
+    // Verify order cancelled and QR code removed
     const updatedOrder = await Order.findById(order._id);
     expect(updatedOrder.status).toBe("CANCELLED");
     expect(updatedOrder.paymentStatus).toBe("EXPIRED");
+    expect(updatedOrder.paymentInfo.qrCodeUrl).toBeNull();
 
     // Verify stock restored
     const updatedFood = await Food.findById(food._id);

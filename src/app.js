@@ -34,7 +34,12 @@ const corsOrigin =
       };
 
 app.use(cors({ origin: corsOrigin, credentials: true }));
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ 
+  limit: "10mb",
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
@@ -49,9 +54,6 @@ app.get("/", (req, res) => {
   res.json({ message: "UniLife Backend API", status: "OK" });
 });
 
-// Force map Webhook để triệt tiêu mọi rủi ro về môi trường (API_PREFIX mismatch)
-app.post("/api/v1/sepay-payment", require("./modules/payment/payment.controller").handleSepayWebhook);
-app.get("/api/v1/sepay-payment", (req, res) => res.json({ success: true, message: "SePay Webhook endpoint is active on LIVE server!" }));
 
 app.use(process.env.API_PREFIX || "/api/v1", routes);
 app.use(notFoundHandler);
