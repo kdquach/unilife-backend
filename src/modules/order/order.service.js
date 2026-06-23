@@ -403,6 +403,7 @@ const getPaymentStatus = async (orderId, userId) => {
     expiresAt: order.expiresAt,
     paidAt: order.paidAt,
     transactionRef: order.transactionRef,
+    pickupQrPayload: order.pickupQrPayload,
   };
 };
 

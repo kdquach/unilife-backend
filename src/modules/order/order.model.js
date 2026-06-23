@@ -43,6 +43,14 @@ orderSchema.virtual("orderId").get(function () {
   return this._id.toString();
 });
 
+orderSchema.virtual("pickupQrPayload").get(function () {
+  return JSON.stringify({
+    type: "UNILIFE_PICKUP",
+    orderId: this._id.toString(),
+    orderCode: this.orderCode,
+  });
+});
+
 orderSchema.virtual("items", {
   ref: "OrderItem",
   localField: "_id",
