@@ -28,6 +28,17 @@ const getPaymentStatus = asyncHandler(async (req, res) => {
     "Payment status retrieved successfully",
   );
 });
+const scanPickupQr = asyncHandler(async (req, res) => {
+  const result = await service.scanPickupQr(req.body);
+  return success(
+    res,
+    result,
+    result.created
+      ? "Pickup QR scanned successfully"
+      : "Pickup QR already scanned",
+    result.created ? 201 : 200,
+  );
+});
 const list = asyncHandler(async (req, res) => {
   const query = { ...req.query };
 
@@ -83,4 +94,14 @@ const createWalkIn = asyncHandler(async (req, res) => {
   );
 });
 
-module.exports = { create, createWalkIn, checkout, list, getById, updateById, deleteById, getPaymentStatus };
+module.exports = {
+  create,
+  createWalkIn,
+  checkout,
+  scanPickupQr,
+  list,
+  getById,
+  updateById,
+  deleteById,
+  getPaymentStatus,
+};

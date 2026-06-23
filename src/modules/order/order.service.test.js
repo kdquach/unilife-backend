@@ -170,3 +170,77 @@ describe("Order Service - Checkout Logic", () => {
     );
   });
 });
+
+describe("Order Service - Scan Pickup QR", () => {
+  it("should create a waiting kitchen queue entry for a valid paid order", async () => {
+    const order = await Order.create({
+      userId: new mongoose.Types.ObjectId(),
+      createdBy: new mongoose.Types.ObjectId(),
+      orderCode: "UL-PO-SCAN-001",
+      status: "PAID",
+      totalPrice: 30000,
+      paymentMethod: "SEPAY",
+      paymentStatus: "PAID",
+      isWalkIn: false,
+      transferContent: "UNSCAN001",
+    });
+
+    const result = await orderService.scanPickupQr({
+      qrPayload: JSON.stringify({ orderCode: order.orderCode }),
+    });
+
+    expect(result.created).toBe(true);
+    expect(result.queue.queueNumber).toBe(1);
+    expect(result.queue.status).toBe("WAITING");
+    expect(result.order.orderCode).toBe(order.orderCode);
+
+    const queue = await Queue.findOne({ orderId: order._id });
+    expect(queue).toBeDefined();
+    expect(queue.status).toBe("WAITING");
+  });
+
+  it("should return existing queue when pickup QR is scanned again", async () => {
+    const order = await Order.create({
+      userId: new mongoose.Types.ObjectId(),
+      createdBy: new mongoose.Types.ObjectId(),
+      orderCode: "UL-PO-SCAN-002",
+      status: "PAID",
+      totalPrice: 30000,
+      paymentMethod: "SEPAY",
+      paymentStatus: "PAID",
+      isWalkIn: false,
+    });
+
+    const firstScan = await orderService.scanPickupQr({
+      orderCode: order.orderCode,
+    });
+    const secondScan = await orderService.scanPickupQr({
+      orderCode: order.orderCode,
+    });
+
+    expect(firstScan.created).toBe(true);
+    expect(secondScan.created).toBe(false);
+    expect(secondScan.queue.queueNumber).toBe(firstScan.queue.queueNumber);
+    expect(await Queue.countDocuments({ orderId: order._id })).toBe(1);
+  });
+
+  it("should reject unpaid pickup QR scans", async () => {
+    const order = await Order.create({
+      userId: new mongoose.Types.ObjectId(),
+      createdBy: new mongoose.Types.ObjectId(),
+      orderCode: "UL-PO-SCAN-003",
+      status: "PENDING_PAYMENT",
+      totalPrice: 30000,
+      paymentMethod: "SEPAY",
+      paymentStatus: "PENDING",
+      isWalkIn: false,
+    });
+
+    await expect(
+      orderService.scanPickupQr({ orderCode: order.orderCode }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Only paid or confirmed orders can enter kitchen queue",
+    });
+  });
+});

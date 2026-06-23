@@ -21,7 +21,7 @@ const orderSchema = new mongoose.Schema(
     paymentStatus: { type: String, required: true },
     isWalkIn: { type: Boolean, default: false, index: true },
     note: { type: String, trim: true, default: null },
-    transferContent: { type: String, default: null },
+    transferContent: { type: String, default: undefined },
     paymentInfo: {
       bankName: { type: String, default: null },
       accountNumber: { type: String, default: null },
@@ -40,7 +40,18 @@ const orderSchema = new mongoose.Schema(
 );
 
 orderSchema.virtual("orderId").get(function () {
-  return this._id.toString();
+  return this._id?.toString();
+});
+
+orderSchema.virtual("pickupQrPayload").get(function () {
+  const orderId = this._id?.toString();
+  if (!orderId || !this.orderCode) return null;
+
+  return JSON.stringify({
+    type: "UNILIFE_PICKUP",
+    orderId,
+    orderCode: this.orderCode,
+  });
 });
 
 orderSchema.virtual("items", {
@@ -56,7 +67,13 @@ orderSchema.virtual("queue", {
   justOne: true,
 });
 
-orderSchema.index({ transferContent: 1 }, { unique: true, sparse: true });
+orderSchema.index(
+  { transferContent: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { transferContent: { $type: "string" } },
+  },
+);
 orderSchema.index({ paymentStatus: 1, expiresAt: 1 });
 
 module.exports = mongoose.model("Order", orderSchema);

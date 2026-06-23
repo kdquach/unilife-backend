@@ -5,6 +5,7 @@ const Food = require("../food/food.model");
 const MenuScheduleItem = require("../menuScheduleItem/menuScheduleItem.model");
 const Cart = require("../cart/cart.model");
 const CartItem = require("../cartItem/cartItem.model");
+const queueService = require("../queue/queue.service");
 const { getPagination } = require("../../utils/pagination.util");
 const {
   generateTransferContent,
@@ -106,6 +107,8 @@ const create = async (data) => {
     status: paymentMethod === "CASH" ? "PAID" : "PENDING_PAYMENT",
     paymentMethod: paymentMethod || "SEPAY",
     paymentStatus: paymentMethod === "CASH" ? "PAID" : "PENDING",
+    transferContent:
+      paymentMethod === "CASH" ? undefined : orderData.transferContent,
     totalPrice: 0, // Will calculate below
   });
 
@@ -402,6 +405,22 @@ const getPaymentStatus = async (orderId, userId) => {
     expiresAt: order.expiresAt,
     paidAt: order.paidAt,
     transactionRef: order.transactionRef,
+    pickupQrPayload: order.pickupQrPayload,
+  };
+};
+
+const scanPickupQr = async (data = {}) => {
+  const result = await queueService.scanOrderQr({
+    orderId: data.orderId,
+    orderCode: data.orderCode,
+    qrPayload: data.qrPayload,
+    qrCode: data.qrCode,
+  });
+
+  return {
+    created: result.created,
+    order: result.queue.orderId,
+    queue: result.queue,
   };
 };
 
@@ -579,4 +598,5 @@ module.exports = {
   updateById,
   deleteById,
   getPaymentStatus,
+  scanPickupQr,
 };
