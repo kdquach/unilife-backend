@@ -103,9 +103,9 @@ const create = async (data) => {
   const order = new Order({
     ...orderData,
     orderCode,
-    status: "PENDING",
+    status: paymentMethod === "CASH" ? "PAID" : "PENDING_PAYMENT",
     paymentMethod: paymentMethod || "SEPAY",
-    paymentStatus: "PENDING",
+    paymentStatus: paymentMethod === "CASH" ? "PAID" : "PENDING",
     totalPrice: 0, // Will calculate below
   });
 
@@ -164,15 +164,6 @@ const create = async (data) => {
   // Update order's total price
   order.totalPrice = totalPrice;
   await order.save();
-
-  // Create a queue entry for the order
-  const queueCount = await Queue.countDocuments();
-  const queue = new Queue({
-    orderId: order._id,
-    queueNumber: queueCount + 1,
-    status: "WAITING",
-  });
-  await queue.save();
 
   // Retrieve populated order
   return getById(order._id);
@@ -350,7 +341,7 @@ const checkout = async (userId, data = {}) => {
     userId,
     createdBy: userId,
     orderCode,
-    status: "PENDING",
+    status: "PENDING_PAYMENT",
     totalPrice,
     note: data.note || null,
     paymentMethod: "SEPAY",
@@ -373,14 +364,6 @@ const checkout = async (userId, data = {}) => {
       ...itemData,
     });
   }
-
-  // Create queue entry
-  const queueCount = await Queue.countDocuments();
-  await Queue.create({
-    orderId: order._id,
-    queueNumber: queueCount + 1,
-    status: "WAITING",
-  });
 
   // Clear user's cart
   await CartItem.deleteMany({ cartId: cart._id });
@@ -516,7 +499,7 @@ const updateById = async (id, data) => {
 
     const currentStatus = order.status.toUpperCase();
     if (
-      ["PREPARING", "READY", "COMPLETED", "CANCELLED"].includes(currentStatus)
+      ["COMPLETED", "CANCELLED", "EXPIRED"].includes(currentStatus)
     ) {
       const error = new Error(
         `Cannot cancel order. Current status is ${order.status}.`,
@@ -545,8 +528,8 @@ const updateById = async (id, data) => {
     order.status = "CANCELLED";
     await order.save();
 
-    // Update associated Queue status to CANCELLED
-    await Queue.updateOne({ orderId: id }, { $set: { status: "CANCELLED" } });
+    // Move any kitchen queue entry out of the active flow.
+    await Queue.updateOne({ orderId: id }, { $set: { status: "SKIPPED" } });
 
     // Restore stock/servings
     if (order.items && Array.isArray(order.items)) {
