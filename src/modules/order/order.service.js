@@ -107,6 +107,8 @@ const create = async (data) => {
     status: paymentMethod === "CASH" ? "PAID" : "PENDING_PAYMENT",
     paymentMethod: paymentMethod || "SEPAY",
     paymentStatus: paymentMethod === "CASH" ? "PAID" : "PENDING",
+    transferContent:
+      paymentMethod === "CASH" ? undefined : orderData.transferContent,
     totalPrice: 0, // Will calculate below
   });
 
