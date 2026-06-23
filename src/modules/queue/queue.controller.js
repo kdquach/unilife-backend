@@ -15,6 +15,9 @@ const getMonitorQueue = asyncHandler(async (req, res) =>
     "Get monitor queue successfully",
   ),
 );
+const callNextNumber = asyncHandler(async (req, res) =>
+  success(res, await service.callNextNumber(), "Next queue number called"),
+);
 const getById = asyncHandler(async (req, res) =>
   success(res, await service.getById(req.params.id), "Get detail successfully"),
 );
@@ -33,6 +36,7 @@ module.exports = {
   create,
   list,
   getMonitorQueue,
+  callNextNumber,
   getById,
   updateById,
   deleteById,

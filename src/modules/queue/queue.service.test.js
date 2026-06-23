@@ -122,3 +122,70 @@ describe("Queue Service - Monitor Queue", () => {
     expect(result.summary.waiting).toBe(0);
   });
 });
+
+describe("Queue Service - Call Next Number", () => {
+  it("calls the earliest paid waiting queue and marks its order as preparing", async () => {
+    const pendingOrder = await Order.create({
+      orderCode: "UL-PO-20260623-0001",
+      status: "PENDING",
+      totalPrice: 30000,
+      paymentMethod: "SEPAY",
+      paymentStatus: "PENDING",
+      isWalkIn: false,
+    });
+    await Queue.create({
+      orderId: pendingOrder._id,
+      queueNumber: 1,
+      status: "WAITING",
+    });
+
+    const paidOrder = await Order.create({
+      orderCode: "UL-PO-20260623-0002",
+      status: "CONFIRMED",
+      totalPrice: 30000,
+      paymentMethod: "SEPAY",
+      paymentStatus: "PAID",
+      isWalkIn: false,
+    });
+    await Queue.create({
+      orderId: paidOrder._id,
+      queueNumber: 2,
+      status: "WAITING",
+    });
+
+    const laterPaidOrder = await Order.create({
+      orderCode: "UL-PO-20260623-0003",
+      status: "CONFIRMED",
+      totalPrice: 30000,
+      paymentMethod: "SEPAY",
+      paymentStatus: "PAID",
+      isWalkIn: false,
+    });
+    await Queue.create({
+      orderId: laterPaidOrder._id,
+      queueNumber: 3,
+      status: "WAITING",
+    });
+
+    const result = await queueService.callNextNumber();
+
+    expect(result.queueNumber).toBe(2);
+    expect(result.status).toBe("CALLED");
+    expect(result.calledAt).toBeDefined();
+    expect(result.orderId.orderCode).toBe("UL-PO-20260623-0002");
+    expect(result.orderId.status).toBe("PREPARING");
+
+    const skippedQueue = await Queue.findOne({ orderId: pendingOrder._id });
+    expect(skippedQueue.status).toBe("WAITING");
+
+    const laterQueue = await Queue.findOne({ orderId: laterPaidOrder._id });
+    expect(laterQueue.status).toBe("WAITING");
+  });
+
+  it("throws when there is no paid waiting queue to call", async () => {
+    await expect(queueService.callNextNumber()).rejects.toMatchObject({
+      statusCode: 404,
+      message: "No waiting queue number available to call",
+    });
+  });
+});

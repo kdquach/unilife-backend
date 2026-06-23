@@ -146,6 +146,46 @@ const getMonitorQueue = async (query = {}) => {
   };
 };
 
+const callNextNumber = async () => {
+  const paidOrders = await Order.find({
+    paymentStatus: "PAID",
+    status: { $nin: ["COMPLETED", "CANCELLED"] },
+  }).select("_id");
+
+  const paidOrderIds = paidOrders.map((order) => order._id);
+  const nextQueue = await Queue.findOneAndUpdate(
+    {
+      status: "WAITING",
+      orderId: { $in: paidOrderIds },
+    },
+    {
+      $set: {
+        status: "CALLED",
+        calledAt: new Date(),
+      },
+    },
+    {
+      new: true,
+      sort: { queueNumber: 1, createdAt: 1 },
+      runValidators: true,
+    },
+  );
+
+  if (!nextQueue) {
+    const error = new Error("No waiting queue number available to call");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  await Order.findByIdAndUpdate(
+    nextQueue.orderId,
+    { $set: { status: "PREPARING" } },
+    { runValidators: true },
+  );
+
+  return populateQueueOrder(Queue.findById(nextQueue._id));
+};
+
 const getById = (id) => populateQueueOrder(Queue.findById(id));
 const updateById = (id, data) =>
   Queue.findByIdAndUpdate(id, data, { new: true, runValidators: true });
@@ -155,6 +195,7 @@ module.exports = {
   create,
   list,
   getMonitorQueue,
+  callNextNumber,
   getById,
   updateById,
   deleteById,

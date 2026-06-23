@@ -12,6 +12,11 @@ router.get(
   authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.KITCHEN_STAFF),
   controller.getMonitorQueue,
 );
+router.post(
+  "/call-next",
+  authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.KITCHEN_STAFF),
+  controller.callNextNumber,
+);
 router.get("/", controller.list);
 router.post("/", controller.create);
 router.get("/:id", controller.getById);
