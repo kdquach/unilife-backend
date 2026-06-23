@@ -70,10 +70,54 @@ const getNextQueueNumber = async (scannedAt = new Date()) => {
   return (latest?.queueNumber || 0) + 1;
 };
 
-const findOrderForScan = async ({ orderId, orderCode, qrPayload }) => {
-  if (orderId) return Order.findById(orderId);
+const parseQrPayload = (value) => {
+  if (!value || typeof value !== "string") return {};
 
-  const code = orderCode || qrPayload;
+  const raw = value.trim();
+  if (!raw) return {};
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      return {
+        orderId: parsed.orderId || parsed._id || parsed.id,
+        orderCode: parsed.orderCode || parsed.code,
+        transferContent: parsed.transferContent,
+      };
+    }
+  } catch (error) {
+    // Continue with URL/raw parsing.
+  }
+
+  try {
+    const url = new URL(raw);
+    return {
+      orderId:
+        url.searchParams.get("orderId") ||
+        url.searchParams.get("_id") ||
+        url.searchParams.get("id"),
+      orderCode:
+        url.searchParams.get("orderCode") ||
+        url.searchParams.get("code") ||
+        url.searchParams.get("order_code"),
+      transferContent: url.searchParams.get("transferContent"),
+    };
+  } catch (error) {
+    // Continue with raw parsing.
+  }
+
+  return { orderCode: raw, transferContent: raw };
+};
+
+const findOrderForScan = async ({ orderId, orderCode, qrPayload, qrCode }) => {
+  const parsedPayload = parseQrPayload(qrPayload || qrCode);
+  const resolvedOrderId = orderId || parsedPayload.orderId;
+  const resolvedOrderCode = orderCode || parsedPayload.orderCode;
+  const transferContent = parsedPayload.transferContent;
+
+  if (resolvedOrderId) return Order.findById(resolvedOrderId);
+
+  const code = resolvedOrderCode || transferContent;
   if (!code) {
     const error = new Error("Order ID, order code or QR payload is required");
     error.statusCode = 400;
@@ -81,7 +125,11 @@ const findOrderForScan = async ({ orderId, orderCode, qrPayload }) => {
   }
 
   return Order.findOne({
-    $or: [{ orderCode: code }, { transferContent: code }],
+    $or: [
+      { orderCode: code },
+      { transferContent: code },
+      ...(transferContent ? [{ transferContent }] : []),
+    ],
   });
 };
 

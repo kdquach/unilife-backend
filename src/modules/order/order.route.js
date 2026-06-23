@@ -11,6 +11,13 @@ router.use(authenticate);
 // Checkout - create order from cart with SePay payment
 router.post("/checkout", controller.checkout);
 
+// Counter Staff scans customer pickup QR to start kitchen processing.
+router.post(
+  "/scan-pickup-qr",
+  authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.COUNTER_STAFF),
+  controller.scanPickupQr,
+);
+
 // Payment status
 router.get("/:id/payment-status", controller.getPaymentStatus);
 

@@ -5,6 +5,7 @@ const Food = require("../food/food.model");
 const MenuScheduleItem = require("../menuScheduleItem/menuScheduleItem.model");
 const Cart = require("../cart/cart.model");
 const CartItem = require("../cartItem/cartItem.model");
+const queueService = require("../queue/queue.service");
 const { getPagination } = require("../../utils/pagination.util");
 const {
   generateTransferContent,
@@ -405,6 +406,21 @@ const getPaymentStatus = async (orderId, userId) => {
   };
 };
 
+const scanPickupQr = async (data = {}) => {
+  const result = await queueService.scanOrderQr({
+    orderId: data.orderId,
+    orderCode: data.orderCode,
+    qrPayload: data.qrPayload,
+    qrCode: data.qrCode,
+  });
+
+  return {
+    created: result.created,
+    order: result.queue.orderId,
+    queue: result.queue,
+  };
+};
+
 const list = async (query = {}) => {
   const { page, limit, skip } = getPagination(query);
   const filter = {};
@@ -579,4 +595,5 @@ module.exports = {
   updateById,
   deleteById,
   getPaymentStatus,
+  scanPickupQr,
 };
