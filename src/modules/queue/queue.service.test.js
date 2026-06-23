@@ -10,8 +10,7 @@ let mongoServer;
 
 beforeAll(async () => {
   mongoServer = await MongoMemoryServer.create();
-  const uri = mongoServer.getUri();
-  await mongoose.connect(uri);
+  await mongoose.connect(mongoServer.getUri());
 });
 
 afterAll(async () => {
@@ -26,166 +25,111 @@ beforeEach(async () => {
   await Food.deleteMany({});
 });
 
-describe("Queue Service - Monitor Queue", () => {
-  it("returns paid active queue entries with populated order items", async () => {
-    const food = await Food.create({
-      name: "Chicken Rice",
-      description: "Test food",
-      price: 30000,
-      stockQuantity: 10,
-      isActive: true,
-    });
+const createPaidOrder = async (overrides = {}) =>
+  Order.create({
+    orderCode: overrides.orderCode || `UL-PO-${Date.now()}`,
+    status: overrides.status || "PAID",
+    totalPrice: overrides.totalPrice || 30000,
+    paymentMethod: overrides.paymentMethod || "SEPAY",
+    paymentStatus: overrides.paymentStatus || "PAID",
+    isWalkIn: overrides.isWalkIn || false,
+    note: overrides.note || null,
+  });
 
-    const paidOrder = await Order.create({
-      orderCode: "UL-PO-20260623-0001",
-      status: "CONFIRMED",
-      totalPrice: 30000,
-      paymentMethod: "SEPAY",
-      paymentStatus: "PAID",
-      isWalkIn: false,
-    });
-    await OrderItem.create({
-      orderId: paidOrder._id,
-      itemType: "REGULAR_FOOD",
-      foodId: food._id,
-      quantity: 1,
-      unitPrice: 30000,
-      subtotal: 30000,
-    });
-    await Queue.create({
-      orderId: paidOrder._id,
-      queueNumber: 2,
-      status: "WAITING",
-    });
-
-    const unpaidOrder = await Order.create({
-      orderCode: "UL-PO-20260623-0002",
-      status: "PENDING",
-      totalPrice: 30000,
-      paymentMethod: "SEPAY",
-      paymentStatus: "PENDING",
-      isWalkIn: false,
-    });
-    await Queue.create({
-      orderId: unpaidOrder._id,
-      queueNumber: 1,
-      status: "WAITING",
-    });
+describe("Queue Service - Kitchen Queue Lifecycle", () => {
+  it("does not show paid orders before counter scan", async () => {
+    await createPaidOrder({ orderCode: "UL-PO-20260623-0001" });
 
     const result = await queueService.getMonitorQueue();
 
-    expect(result.items).toHaveLength(1);
-    expect(result.summary.total).toBe(1);
-    expect(result.summary.waiting).toBe(1);
-    expect(result.items[0].queueNumber).toBe(2);
-    expect(result.items[0].orderId.orderCode).toBe("UL-PO-20260623-0001");
-    expect(result.items[0].orderId.items).toHaveLength(1);
-    expect(result.items[0].orderId.items[0].foodId.name).toBe("Chicken Rice");
+    expect(result.currentServing).toBeNull();
+    expect(result.waiting).toHaveLength(0);
+    expect(result.summary.total).toBe(0);
   });
 
-  it("supports status filtering for kitchen monitor", async () => {
-    const preparingOrder = await Order.create({
-      orderCode: "UL-WI-20260623-0001",
-      status: "PREPARING",
-      totalPrice: 35000,
-      paymentMethod: "CASH",
-      paymentStatus: "PAID",
-      isWalkIn: true,
-    });
-    await Queue.create({
-      orderId: preparingOrder._id,
-      queueNumber: 1,
-      status: "PREPARING",
+  it("creates a waiting queue entry when counter scans a valid paid order", async () => {
+    const order = await createPaidOrder({ orderCode: "UL-PO-20260623-0001" });
+
+    const result = await queueService.scanOrderQr({
+      orderCode: order.orderCode,
     });
 
-    const waitingOrder = await Order.create({
-      orderCode: "UL-WI-20260623-0002",
-      status: "CONFIRMED",
-      totalPrice: 30000,
-      paymentMethod: "CASH",
-      paymentStatus: "PAID",
-      isWalkIn: true,
-    });
-    await Queue.create({
-      orderId: waitingOrder._id,
-      queueNumber: 2,
-      status: "WAITING",
-    });
-
-    const result = await queueService.getMonitorQueue({
-      status: "PREPARING",
-    });
-
-    expect(result.items).toHaveLength(1);
-    expect(result.items[0].status).toBe("PREPARING");
-    expect(result.summary.preparing).toBe(1);
-    expect(result.summary.waiting).toBe(0);
+    expect(result.created).toBe(true);
+    expect(result.queue.queueNumber).toBe(1);
+    expect(result.queue.status).toBe("WAITING");
+    expect(result.queue.scannedAt).toBeDefined();
+    expect(result.queue.orderId.orderCode).toBe(order.orderCode);
   });
-});
 
-describe("Queue Service - Call Next Number", () => {
-  it("calls the earliest paid waiting queue and marks its order as preparing", async () => {
-    const pendingOrder = await Order.create({
+  it("does not create a duplicate queue when scanning the same QR again", async () => {
+    const order = await createPaidOrder({ orderCode: "UL-PO-20260623-0001" });
+
+    const firstScan = await queueService.scanOrderQr({
+      orderCode: order.orderCode,
+    });
+    const secondScan = await queueService.scanOrderQr({
+      orderCode: order.orderCode,
+    });
+
+    expect(firstScan.created).toBe(true);
+    expect(secondScan.created).toBe(false);
+    expect(secondScan.queue.queueNumber).toBe(firstScan.queue.queueNumber);
+    expect(await Queue.countDocuments({ orderId: order._id })).toBe(1);
+  });
+
+  it("auto-promotes the earliest waiting queue to serving on monitor", async () => {
+    const firstOrder = await createPaidOrder({
       orderCode: "UL-PO-20260623-0001",
-      status: "PENDING",
-      totalPrice: 30000,
-      paymentMethod: "SEPAY",
-      paymentStatus: "PENDING",
-      isWalkIn: false,
     });
-    await Queue.create({
-      orderId: pendingOrder._id,
-      queueNumber: 1,
-      status: "WAITING",
-    });
-
-    const paidOrder = await Order.create({
+    const secondOrder = await createPaidOrder({
       orderCode: "UL-PO-20260623-0002",
-      status: "CONFIRMED",
-      totalPrice: 30000,
-      paymentMethod: "SEPAY",
-      paymentStatus: "PAID",
-      isWalkIn: false,
-    });
-    await Queue.create({
-      orderId: paidOrder._id,
-      queueNumber: 2,
-      status: "WAITING",
     });
 
-    const laterPaidOrder = await Order.create({
-      orderCode: "UL-PO-20260623-0003",
-      status: "CONFIRMED",
-      totalPrice: 30000,
-      paymentMethod: "SEPAY",
-      paymentStatus: "PAID",
-      isWalkIn: false,
+    await queueService.scanOrderQr({ orderCode: firstOrder.orderCode });
+    await queueService.scanOrderQr({ orderCode: secondOrder.orderCode });
+
+    const result = await queueService.getMonitorQueue();
+
+    expect(result.currentServing.queueNumber).toBe(1);
+    expect(result.currentServing.status).toBe("SERVING");
+    expect(result.waiting).toHaveLength(1);
+    expect(result.waiting[0].queueNumber).toBe(2);
+  });
+
+  it("marks current serving done, completes its order, and promotes next waiting queue", async () => {
+    const firstOrder = await createPaidOrder({
+      orderCode: "UL-PO-20260623-0001",
     });
-    await Queue.create({
-      orderId: laterPaidOrder._id,
-      queueNumber: 3,
-      status: "WAITING",
+    const secondOrder = await createPaidOrder({
+      orderCode: "UL-PO-20260623-0002",
     });
+
+    await queueService.scanOrderQr({ orderCode: firstOrder.orderCode });
+    await queueService.scanOrderQr({ orderCode: secondOrder.orderCode });
+    await queueService.getMonitorQueue();
 
     const result = await queueService.callNextNumber();
 
-    expect(result.queueNumber).toBe(2);
-    expect(result.status).toBe("CALLED");
-    expect(result.calledAt).toBeDefined();
-    expect(result.orderId.orderCode).toBe("UL-PO-20260623-0002");
-    expect(result.orderId.status).toBe("PREPARING");
+    expect(result.completedQueue.status).toBe("DONE");
+    expect(result.completedQueue.doneAt).toBeDefined();
+    expect(result.currentServing.queueNumber).toBe(2);
+    expect(result.currentServing.status).toBe("SERVING");
 
-    const skippedQueue = await Queue.findOne({ orderId: pendingOrder._id });
-    expect(skippedQueue.status).toBe("WAITING");
-
-    const laterQueue = await Queue.findOne({ orderId: laterPaidOrder._id });
-    expect(laterQueue.status).toBe("WAITING");
+    const completedOrder = await Order.findById(firstOrder._id);
+    expect(completedOrder.status).toBe("COMPLETED");
   });
 
-  it("throws when there is no paid waiting queue to call", async () => {
-    await expect(queueService.callNextNumber()).rejects.toMatchObject({
-      statusCode: 404,
-      message: "No waiting queue number available to call",
+  it("rejects cancelled, expired, or completed orders during scan", async () => {
+    const order = await createPaidOrder({
+      orderCode: "UL-PO-20260623-0001",
+      status: "CANCELLED",
+    });
+
+    await expect(
+      queueService.scanOrderQr({ orderCode: order.orderCode }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Cannot scan order with status CANCELLED",
     });
   });
 });

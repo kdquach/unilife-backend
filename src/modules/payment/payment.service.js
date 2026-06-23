@@ -191,7 +191,7 @@ const processWebhook = async (webhookData) => {
     { 
       $set: { 
         paymentStatus: "PAID", 
-        status: "CONFIRMED", 
+        status: "PAID", 
         paidAt: new Date(), 
         transactionRef: referenceCode || String(transactionId || ""),
         "paymentInfo.qrCodeUrl": null
@@ -241,7 +241,7 @@ const expirePendingOrders = async () => {
     // Xóa QR code để người dùng không chuyển tiền nhầm nữa
     const updated = await Order.findOneAndUpdate(
       { _id: order._id, paymentStatus: "PENDING", status: { $nin: ["CANCELLED"] } },
-      { $set: { paymentStatus: "EXPIRED", status: "CANCELLED", "paymentInfo.qrCodeUrl": null } },
+      { $set: { paymentStatus: "EXPIRED", status: "EXPIRED", "paymentInfo.qrCodeUrl": null } },
       { new: true }
     );
 
@@ -263,10 +263,10 @@ const expirePendingOrders = async () => {
         }
       }
 
-      // Cancel queue entry
+      // Move any scanned queue entry out of the active kitchen flow.
       await Queue.findOneAndUpdate(
         { orderId: order._id },
-        { $set: { status: "CANCELLED" } },
+        { $set: { status: "SKIPPED" } },
       );
 
       expiredCount++;

@@ -7,6 +7,11 @@ const ROLES = require("../../constants/roles.constant");
 const router = express.Router();
 
 router.use(authenticate);
+router.post(
+  "/scan",
+  authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.COUNTER_STAFF),
+  controller.scanOrderQr,
+);
 router.get(
   "/monitor",
   authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.KITCHEN_STAFF),

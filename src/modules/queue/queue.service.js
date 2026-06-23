@@ -2,7 +2,8 @@ const Queue = require("./queue.model");
 const Order = require("../order/order.model");
 const { getPagination } = require("../../utils/pagination.util");
 
-const ACTIVE_QUEUE_STATUSES = ["WAITING", "CALLED", "PREPARING", "READY"];
+const ACTIVE_QUEUE_STATUSES = ["WAITING", "SERVING"];
+const INVALID_SCAN_ORDER_STATUSES = ["CANCELLED", "EXPIRED", "COMPLETED"];
 
 const create = (data) => Queue.create(data);
 
@@ -15,13 +16,26 @@ const toArray = (value) => {
     .filter(Boolean);
 };
 
-const buildDateFilter = (query) => {
-  if (!query.fromDate && !query.toDate) return null;
+const getDayRange = (date = new Date()) => {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
 
-  const createdAt = {};
-  if (query.fromDate) createdAt.$gte = new Date(query.fromDate);
-  if (query.toDate) createdAt.$lte = new Date(query.toDate);
-  return createdAt;
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+
+  return { start, end };
+};
+
+const buildDateFilter = (query = {}) => {
+  if (query.fromDate || query.toDate) {
+    const createdAt = {};
+    if (query.fromDate) createdAt.$gte = new Date(query.fromDate);
+    if (query.toDate) createdAt.$lte = new Date(query.toDate);
+    return createdAt;
+  }
+
+  const { start, end } = getDayRange();
+  return { $gte: start, $lt: end };
 };
 
 const populateQueueOrder = (query) =>
@@ -45,12 +59,62 @@ const populateQueueOrder = (query) =>
     ],
   });
 
+const getPopulatedById = (id) => populateQueueOrder(Queue.findById(id));
+
+const getNextQueueNumber = async (scannedAt = new Date()) => {
+  const { start, end } = getDayRange(scannedAt);
+  const latest = await Queue.findOne({
+    scannedAt: { $gte: start, $lt: end },
+  }).sort({ queueNumber: -1 });
+
+  return (latest?.queueNumber || 0) + 1;
+};
+
+const findOrderForScan = async ({ orderId, orderCode, qrPayload }) => {
+  if (orderId) return Order.findById(orderId);
+
+  const code = orderCode || qrPayload;
+  if (!code) {
+    const error = new Error("Order ID, order code or QR payload is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return Order.findOne({
+    $or: [{ orderCode: code }, { transferContent: code }],
+  });
+};
+
+const validateOrderCanEnterQueue = (order) => {
+  if (!order) {
+    const error = new Error("Order not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (INVALID_SCAN_ORDER_STATUSES.includes(order.status)) {
+    const error = new Error(`Cannot scan order with status ${order.status}`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const isPaid = order.paymentStatus === "PAID";
+  const isAcceptedOrderStatus = ["PAID", "CONFIRMED"].includes(order.status);
+  if (!isPaid || !isAcceptedOrderStatus) {
+    const error = new Error("Only paid or confirmed orders can enter kitchen queue");
+    error.statusCode = 400;
+    throw error;
+  }
+};
+
 const list = async (query = {}) => {
   const { page, limit, skip } = getPagination(query);
   const filter = {};
+
   if (query.status) filter.status = query.status;
   if (query.orderId) filter.orderId = query.orderId;
-  if (query.fromDate || query.toDate) filter.createdAt = buildDateFilter(query);
+  filter.scannedAt = buildDateFilter(query);
+
   if (query.keyword) {
     const orders = await Order.find({
       orderCode: new RegExp(query.keyword, "i"),
@@ -62,7 +126,7 @@ const list = async (query = {}) => {
     populateQueueOrder(Queue.find(filter))
       .skip(skip)
       .limit(limit)
-      .sort({ createdAt: -1 }),
+      .sort({ scannedAt: -1, createdAt: -1 }),
     Queue.countDocuments(filter),
   ]);
 
@@ -72,10 +136,94 @@ const list = async (query = {}) => {
   };
 };
 
+const promoteNextWaitingQueue = async (query = {}) => {
+  const now = new Date();
+  const nextQueue = await Queue.findOneAndUpdate(
+    {
+      status: "WAITING",
+      scannedAt: buildDateFilter(query),
+    },
+    {
+      $set: {
+        status: "SERVING",
+        servedAt: now,
+      },
+    },
+    {
+      new: true,
+      sort: { queueNumber: 1, scannedAt: 1, createdAt: 1 },
+      runValidators: true,
+    },
+  );
+
+  if (!nextQueue) return null;
+
+  await Order.findByIdAndUpdate(
+    nextQueue.orderId,
+    { $set: { status: "CONFIRMED" } },
+    { runValidators: true },
+  );
+
+  return getPopulatedById(nextQueue._id);
+};
+
+const ensureCurrentServingQueue = async (query = {}) => {
+  const dateFilter = buildDateFilter(query);
+  const currentServing = await populateQueueOrder(
+    Queue.findOne({
+      status: "SERVING",
+      scannedAt: dateFilter,
+    }).sort({ servedAt: 1, queueNumber: 1 }),
+  );
+
+  if (currentServing) return currentServing;
+
+  return promoteNextWaitingQueue(query);
+};
+
+const getCurrentServingQueue = (query = {}) =>
+  populateQueueOrder(
+    Queue.findOne({
+      status: "SERVING",
+      scannedAt: buildDateFilter(query),
+    }).sort({ servedAt: 1, queueNumber: 1 }),
+  );
+
+const scanOrderQr = async (payload = {}) => {
+  const order = await findOrderForScan(payload);
+  validateOrderCanEnterQueue(order);
+
+  const existingQueueDoc = await Queue.findOne({ orderId: order._id }).select(
+    "_id",
+  );
+  const existingQueue = existingQueueDoc
+    ? await getPopulatedById(existingQueueDoc._id)
+    : null;
+  if (existingQueue) {
+    return { queue: existingQueue, created: false };
+  }
+
+  const scannedAt = new Date();
+  const queue = await Queue.create({
+    orderId: order._id,
+    queueNumber: await getNextQueueNumber(scannedAt),
+    status: "WAITING",
+    scannedAt,
+  });
+
+  if (order.status === "PAID") {
+    order.status = "CONFIRMED";
+    await order.save();
+  }
+
+  return { queue: await getPopulatedById(queue._id), created: true };
+};
+
 const getMonitorQueue = async (query = {}) => {
   const { page, limit, skip } = getPagination(query);
-  const queueFilter = {};
+  const dateFilter = buildDateFilter(query);
   const orderFilter = {};
+  const queueFilter = { scannedAt: dateFilter };
 
   const statuses = toArray(query.status || query.statuses);
   queueFilter.status = {
@@ -83,16 +231,9 @@ const getMonitorQueue = async (query = {}) => {
   };
 
   if (query.orderId) orderFilter._id = query.orderId;
-  if (query.fromDate || query.toDate) {
-    queueFilter.createdAt = buildDateFilter(query);
+  if (query.paymentStatus && query.paymentStatus !== "ALL") {
+    orderFilter.paymentStatus = query.paymentStatus;
   }
-
-  if (query.paymentStatus === "ALL") {
-    // Intentionally include every payment status.
-  } else {
-    orderFilter.paymentStatus = query.paymentStatus || "PAID";
-  }
-
   if (query.orderStatus) {
     orderFilter.status = { $in: toArray(query.orderStatus) };
   }
@@ -103,30 +244,40 @@ const getMonitorQueue = async (query = {}) => {
     orderFilter.orderCode = new RegExp(query.keyword, "i");
   }
 
-  const matchingOrders = await Order.find(orderFilter).select("_id");
-  const matchingOrderIds = matchingOrders.map((order) => order._id);
-  queueFilter.orderId = { $in: matchingOrderIds };
+  if (Object.keys(orderFilter).length > 0) {
+    const matchingOrders = await Order.find(orderFilter).select("_id");
+    queueFilter.orderId = { $in: matchingOrders.map((order) => order._id) };
+  }
 
-  const [items, total, statusCounts] = await Promise.all([
-    populateQueueOrder(Queue.find(queueFilter))
+  const shouldAutoPromote = !query.status && !query.statuses;
+  const currentServing = shouldAutoPromote
+    ? await ensureCurrentServingQueue(query)
+    : await populateQueueOrder(
+        Queue.findOne({
+          ...queueFilter,
+          status: "SERVING",
+        }).sort({ servedAt: 1, queueNumber: 1 }),
+      );
+
+  const waitingFilter = { ...queueFilter, status: "WAITING" };
+  const [waiting, waitingTotal, statusCounts] = await Promise.all([
+    populateQueueOrder(Queue.find(waitingFilter))
       .skip(skip)
       .limit(limit)
-      .sort({ queueNumber: 1, createdAt: 1 }),
-    Queue.countDocuments(queueFilter),
+      .sort({ queueNumber: 1, scannedAt: 1, createdAt: 1 }),
+    Queue.countDocuments(waitingFilter),
     Queue.aggregate([
-      { $match: queueFilter },
+      { $match: { scannedAt: dateFilter } },
       { $group: { _id: "$status", count: { $sum: 1 } } },
     ]),
   ]);
 
   const summary = {
-    total,
+    total: 0,
     waiting: 0,
-    called: 0,
-    preparing: 0,
-    ready: 0,
-    completed: 0,
-    cancelled: 0,
+    serving: 0,
+    done: 0,
+    skipped: 0,
     byStatus: {},
   };
 
@@ -136,57 +287,63 @@ const getMonitorQueue = async (query = {}) => {
     const key = status.toLowerCase();
     if (Object.prototype.hasOwnProperty.call(summary, key)) {
       summary[key] = item.count;
+      summary.total += item.count;
     }
   }
 
   return {
-    items,
+    currentServing,
+    waiting,
+    items: [currentServing, ...waiting].filter(Boolean),
     summary,
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    pagination: {
+      page,
+      limit,
+      total: waitingTotal,
+      totalPages: Math.ceil(waitingTotal / limit),
+    },
   };
 };
 
 const callNextNumber = async () => {
-  const paidOrders = await Order.find({
-    paymentStatus: "PAID",
-    status: { $nin: ["COMPLETED", "CANCELLED"] },
-  }).select("_id");
+  const currentServing = await getCurrentServingQueue();
 
-  const paidOrderIds = paidOrders.map((order) => order._id);
-  const nextQueue = await Queue.findOneAndUpdate(
-    {
-      status: "WAITING",
-      orderId: { $in: paidOrderIds },
-    },
-    {
-      $set: {
-        status: "CALLED",
-        calledAt: new Date(),
-      },
-    },
-    {
-      new: true,
-      sort: { queueNumber: 1, createdAt: 1 },
-      runValidators: true,
-    },
-  );
-
-  if (!nextQueue) {
-    const error = new Error("No waiting queue number available to call");
+  if (!currentServing) {
+    const error = new Error("No serving queue item available");
     error.statusCode = 404;
     throw error;
   }
 
+  const now = new Date();
+  const completedQueue = await Queue.findByIdAndUpdate(
+    currentServing._id,
+    {
+      $set: {
+        status: "DONE",
+        doneAt: now,
+      },
+    },
+    { new: true, runValidators: true },
+  );
+
   await Order.findByIdAndUpdate(
-    nextQueue.orderId,
-    { $set: { status: "PREPARING" } },
+    completedQueue.orderId,
+    { $set: { status: "COMPLETED" } },
     { runValidators: true },
   );
 
-  return populateQueueOrder(Queue.findById(nextQueue._id));
+  const nextServing = await promoteNextWaitingQueue();
+  const monitor = await getMonitorQueue();
+
+  return {
+    completedQueue: await getPopulatedById(completedQueue._id),
+    currentServing: nextServing,
+    waiting: monitor.waiting,
+    summary: monitor.summary,
+  };
 };
 
-const getById = (id) => populateQueueOrder(Queue.findById(id));
+const getById = (id) => getPopulatedById(id);
 const updateById = (id, data) =>
   Queue.findByIdAndUpdate(id, data, { new: true, runValidators: true });
 const deleteById = (id) => Queue.findByIdAndDelete(id);
@@ -194,6 +351,7 @@ const deleteById = (id) => Queue.findByIdAndDelete(id);
 module.exports = {
   create,
   list,
+  scanOrderQr,
   getMonitorQueue,
   callNextNumber,
   getById,

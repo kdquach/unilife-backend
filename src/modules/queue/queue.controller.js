@@ -8,6 +8,17 @@ const create = asyncHandler(async (req, res) =>
 const list = asyncHandler(async (req, res) =>
   success(res, await service.list(req.query), "Get list successfully"),
 );
+const scanOrderQr = asyncHandler(async (req, res) => {
+  const result = await service.scanOrderQr(req.body);
+  return success(
+    res,
+    result,
+    result.created
+      ? "Order scanned and added to kitchen queue"
+      : "Order already exists in kitchen queue",
+    result.created ? 201 : 200,
+  );
+});
 const getMonitorQueue = asyncHandler(async (req, res) =>
   success(
     res,
@@ -35,6 +46,7 @@ const deleteById = asyncHandler(async (req, res) =>
 module.exports = {
   create,
   list,
+  scanOrderQr,
   getMonitorQueue,
   callNextNumber,
   getById,

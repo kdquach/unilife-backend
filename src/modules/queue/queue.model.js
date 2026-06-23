@@ -6,21 +6,30 @@ const queueSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Order",
       required: false,
+      unique: true,
+      sparse: true,
       index: true,
     },
     queueNumber: { type: Number, default: 0 },
-    status: { type: String, required: true },
-    calledAt: { type: Date, default: null },
-    completedAt: { type: Date, default: null },
+    status: {
+      type: String,
+      enum: ["WAITING", "SERVING", "DONE", "SKIPPED"],
+      required: true,
+      default: "WAITING",
+      index: true,
+    },
+    scannedAt: { type: Date, default: null },
+    servedAt: { type: Date, default: null },
+    doneAt: { type: Date, default: null },
   },
   {
     toJSON: { virtuals: true },
     toObject: { virtuals: true },
-    timestamps: { createdAt: "createdAt", updatedAt: false },
+    timestamps: true,
   },
 );
 
-queueSchema.index({ status: 1, queueNumber: 1, createdAt: 1 });
+queueSchema.index({ status: 1, queueNumber: 1, scannedAt: 1 });
 
 queueSchema.virtual("queueId").get(function () {
   return this._id.toString();
