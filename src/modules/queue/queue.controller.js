@@ -8,6 +8,13 @@ const create = asyncHandler(async (req, res) =>
 const list = asyncHandler(async (req, res) =>
   success(res, await service.list(req.query), "Get list successfully"),
 );
+const getMonitorQueue = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.getMonitorQueue(req.query),
+    "Get monitor queue successfully",
+  ),
+);
 const getById = asyncHandler(async (req, res) =>
   success(res, await service.getById(req.params.id), "Get detail successfully"),
 );
@@ -22,4 +29,11 @@ const deleteById = asyncHandler(async (req, res) =>
   success(res, await service.deleteById(req.params.id), "Deleted successfully"),
 );
 
-module.exports = { create, list, getById, updateById, deleteById };
+module.exports = {
+  create,
+  list,
+  getMonitorQueue,
+  getById,
+  updateById,
+  deleteById,
+};

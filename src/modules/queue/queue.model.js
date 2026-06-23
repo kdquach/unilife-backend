@@ -20,6 +20,8 @@ const queueSchema = new mongoose.Schema(
   },
 );
 
+queueSchema.index({ status: 1, queueNumber: 1, createdAt: 1 });
+
 queueSchema.virtual("queueId").get(function () {
   return this._id.toString();
 });
