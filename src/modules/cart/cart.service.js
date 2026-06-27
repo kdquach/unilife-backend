@@ -2,6 +2,7 @@ const Cart = require("./cart.model");
 const CartItem = require("../cartItem/cartItem.model");
 const MenuScheduleItem = require("../menuScheduleItem/menuScheduleItem.model");
 const Food = require("../food/food.model");
+const userNotificationService = require("../userNotification/userNotification.service");
 const { getPagination } = require("../../utils/pagination.util");
 
 const create = (data) => Cart.create(data);
@@ -165,7 +166,8 @@ const getMyCart = async (userId) => {
 };
 
 const addItem = async (userId, data) => {
-  const { menuScheduleItemId, foodId, quantity } = data;
+  const { menuScheduleItemId, foodId, quantity, suppressNotification } = data;
+  let addedFoodName = "mon an";
   if ((!menuScheduleItemId && !foodId) || quantity == null || !Number.isInteger(quantity) || quantity <= 0) {
     const error = new Error("Quantity must be a positive integer, and a dish ID is required.");
     error.statusCode = 400;
@@ -180,7 +182,7 @@ const addItem = async (userId, data) => {
   if (menuScheduleItemId) {
     const msi = await MenuScheduleItem.findById(menuScheduleItemId)
       .select("isActive remainingCount foodId menuScheduleId")
-      .populate({ path: "foodId", select: "isActive" })
+      .populate({ path: "foodId", select: "isActive name" })
       .populate({ path: "menuScheduleId", select: "status" })
       .lean();
 
@@ -206,6 +208,7 @@ const addItem = async (userId, data) => {
       err.statusCode = 400;
       throw err;
     }
+    addedFoodName = msi.foodId.name || addedFoodName;
 
     const existingCartItem = await CartItem.findOne({
       cartId: cart._id,
@@ -229,7 +232,7 @@ const addItem = async (userId, data) => {
       { upsert: true, new: true, setDefaultsOnInsert: true },
     );
   } else if (foodId) {
-    const food = await Food.findById(foodId).select("isActive stockQuantity isMenuItem").lean();
+    const food = await Food.findById(foodId).select("isActive stockQuantity isMenuItem name").lean();
     if (!food) {
       const err = new Error("The dish does not exist");
       err.statusCode = 404;
@@ -245,6 +248,7 @@ const addItem = async (userId, data) => {
       err.statusCode = 400;
       throw err;
     }
+    addedFoodName = food.name || addedFoodName;
 
     const existingCartItem = await CartItem.findOne({
       cartId: cart._id,
@@ -267,6 +271,17 @@ const addItem = async (userId, data) => {
       { $inc: { quantity: quantity } },
       { upsert: true, new: true, setDefaultsOnInsert: true },
     );
+  }
+
+  if (!suppressNotification) {
+    await userNotificationService
+      .notifyUser(userId, {
+        title: "Added to cart",
+        body: `You added ${quantity} x ${addedFoodName} to your cart.`,
+        type: "CART_ITEM_ADDED",
+        createdBy: userId,
+      })
+      .catch(() => null);
   }
 
   return getMyCart(userId);

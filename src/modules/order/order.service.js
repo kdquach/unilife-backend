@@ -6,6 +6,7 @@ const MenuScheduleItem = require("../menuScheduleItem/menuScheduleItem.model");
 const Cart = require("../cart/cart.model");
 const CartItem = require("../cartItem/cartItem.model");
 const queueService = require("../queue/queue.service");
+const userNotificationService = require("../userNotification/userNotification.service");
 const { getPagination } = require("../../utils/pagination.util");
 const {
   generateTransferContent,
@@ -371,6 +372,15 @@ const checkout = async (userId, data = {}) => {
   // Clear user's cart
   await CartItem.deleteMany({ cartId: cart._id });
 
+  await userNotificationService
+    .notifyUser(userId, {
+      title: "Order created",
+      body: `Order #${order.orderCode} has been created. Please complete your payment.`,
+      type: "ORDER_CREATED",
+      createdBy: userId,
+    })
+    .catch(() => null);
+
   // Return populated order
   return getById(order._id);
 };
@@ -546,6 +556,17 @@ const updateById = async (id, data) => {
 
     order.status = "CANCELLED";
     await order.save();
+
+    if (order.userId) {
+      await userNotificationService
+        .notifyUser(order.userId, {
+          title: "Order cancelled",
+          body: `Order #${order.orderCode} has been cancelled.`,
+          type: "ORDER_CANCELLED",
+          createdBy: order.userId,
+        })
+        .catch(() => null);
+    }
 
     // Move any kitchen queue entry out of the active flow.
     await Queue.updateOne({ orderId: id }, { $set: { status: "SKIPPED" } });

@@ -3,6 +3,7 @@ const OrderItem = require("../orderItem/orderItem.model");
 const MenuScheduleItem = require("../menuScheduleItem/menuScheduleItem.model");
 const Food = require("../food/food.model");
 const Queue = require("../queue/queue.model");
+const userNotificationService = require("../userNotification/userNotification.service");
 const logger = require("../../utils/logger");
 const crypto = require("crypto");
 
@@ -214,6 +215,17 @@ const processWebhook = async (webhookData) => {
       }
     );
     return { success: true, message: "Payment received for concurrently cancelled order. Marked as REFUND_PENDING." };
+  }
+
+  if (updatedOrder.userId) {
+    await userNotificationService
+      .notifyUser(updatedOrder.userId, {
+        title: "Payment successful",
+        body: `Order #${updatedOrder.orderCode} has been paid successfully.`,
+        type: "PAYMENT_SUCCESS",
+        createdBy: updatedOrder.userId,
+      })
+      .catch(() => null);
   }
 
   return { success: true, message: "Payment confirmed successfully" };

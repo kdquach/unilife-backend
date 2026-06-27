@@ -1,5 +1,6 @@
 const Queue = require("./queue.model");
 const Order = require("../order/order.model");
+const userNotificationService = require("../userNotification/userNotification.service");
 const { getPagination } = require("../../utils/pagination.util");
 
 const ACTIVE_QUEUE_STATUSES = ["WAITING", "SERVING"];
@@ -374,11 +375,22 @@ const callNextNumber = async () => {
     { new: true, runValidators: true },
   );
 
-  await Order.findByIdAndUpdate(
+  const completedOrder = await Order.findByIdAndUpdate(
     completedQueue.orderId,
     { $set: { status: "COMPLETED" } },
-    { runValidators: true },
+    { new: true, runValidators: true },
   );
+
+  if (completedOrder?.userId) {
+    await userNotificationService
+      .notifyUser(completedOrder.userId, {
+        title: "Food is ready",
+        body: `Order #${completedOrder.orderCode} has been prepared. Please pick up your food.`,
+        type: "ORDER_READY",
+        createdBy: completedOrder.userId,
+      })
+      .catch(() => null);
+  }
 
   const nextServing = await promoteNextWaitingQueue();
   const monitor = await getMonitorQueue();
