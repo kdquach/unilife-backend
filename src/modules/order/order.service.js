@@ -17,6 +17,17 @@ const User = require("../user/user.model");
 
 const PAYMENT_EXPIRY_MINUTES = 15;
 
+const isToday = (date) => {
+  if (!date) return false;
+  const value = new Date(date);
+  const today = new Date();
+  return (
+    value.getFullYear() === today.getFullYear() &&
+    value.getMonth() === today.getMonth() &&
+    value.getDate() === today.getDate()
+  );
+};
+
 /**
  * Generate order code: 6-digit numeric string (e.g., 234199)
  */
@@ -190,7 +201,10 @@ const checkout = async (userId, data = {}) => {
   const cartItems = await CartItem.find({ cartId: cart._id })
     .populate({
       path: "menuScheduleItemId",
-      populate: { path: "foodId" },
+      populate: [
+        { path: "foodId" },
+        { path: "menuScheduleId", select: "date status" },
+      ],
     })
     .populate("foodId");
 
@@ -216,6 +230,16 @@ const checkout = async (userId, data = {}) => {
           throw Object.assign(new Error(`Menu item is not available`), {
             statusCode: 400,
           });
+        }
+        if (
+          !menuItem.menuScheduleId ||
+          menuItem.menuScheduleId.status !== "PUBLISHED" ||
+          !isToday(menuItem.menuScheduleId.date)
+        ) {
+          throw Object.assign(
+            new Error(`Only today's menu items can be checked out`),
+            { statusCode: 400 },
+          );
         }
 
         const result = await MenuScheduleItem.findOneAndUpdate(

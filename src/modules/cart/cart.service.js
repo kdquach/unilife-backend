@@ -5,6 +5,17 @@ const Food = require("../food/food.model");
 const userNotificationService = require("../userNotification/userNotification.service");
 const { getPagination } = require("../../utils/pagination.util");
 
+const isToday = (date) => {
+  if (!date) return false;
+  const value = new Date(date);
+  const today = new Date();
+  return (
+    value.getFullYear() === today.getFullYear() &&
+    value.getMonth() === today.getMonth() &&
+    value.getDate() === today.getDate()
+  );
+};
+
 const create = (data) => Cart.create(data);
 
 const list = async (query = {}) => {
@@ -90,6 +101,9 @@ const getMyCart = async (userId) => {
       } else if (menuSchedule.status !== "PUBLISHED") {
         isValid = false;
         reason = "The menu schedule is not published";
+      } else if (!isToday(menuSchedule.date)) {
+        isValid = false;
+        reason = "Only today's menu items can be ordered";
       } else if (msi.remainingCount <= 0) {
         isValid = false;
         reason = "The dish is out of stock";
@@ -183,7 +197,7 @@ const addItem = async (userId, data) => {
     const msi = await MenuScheduleItem.findById(menuScheduleItemId)
       .select("isActive remainingCount foodId menuScheduleId")
       .populate({ path: "foodId", select: "isActive name" })
-      .populate({ path: "menuScheduleId", select: "status" })
+      .populate({ path: "menuScheduleId", select: "date status" })
       .lean();
 
     if (!msi) {
@@ -205,6 +219,11 @@ const addItem = async (userId, data) => {
     }
     if (!msi.menuScheduleId || msi.menuScheduleId.status !== "PUBLISHED") {
       const err = new Error("The menu schedule is not published");
+      err.statusCode = 400;
+      throw err;
+    }
+    if (!isToday(msi.menuScheduleId.date)) {
+      const err = new Error("Only today's menu items can be added to cart");
       err.statusCode = 400;
       throw err;
     }
@@ -323,11 +342,24 @@ const updateItem = async (userId, cartItemId, data) => {
     const msi = await MenuScheduleItem.findById(
       existingCartItem.menuScheduleItemId,
     )
-      .select("remainingCount")
+      .select("remainingCount menuScheduleId")
+      .populate({ path: "menuScheduleId", select: "date status" })
       .lean();
     if (!msi) {
       const err = new Error("The dish does not exist in the menu schedule.");
       err.statusCode = 404;
+      throw err;
+    }
+
+    if (!msi.menuScheduleId || msi.menuScheduleId.status !== "PUBLISHED") {
+      const err = new Error("The menu schedule is not published.");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    if (!isToday(msi.menuScheduleId.date)) {
+      const err = new Error("Only today's menu items can be updated in cart.");
+      err.statusCode = 400;
       throw err;
     }
 
