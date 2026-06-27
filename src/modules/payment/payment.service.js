@@ -53,7 +53,7 @@ const generateTransferContent = (orderCode) => {
  */
 const verifyWebhookAuth = (req) => {
   const config = getSepayConfig();
-  
+
   // 1. Check API Key if provided
   const authHeader = req.headers.authorization;
   if (authHeader) {
@@ -64,23 +64,26 @@ const verifyWebhookAuth = (req) => {
   // 2. Check HMAC Signature if provided
   const signature = req.headers["x-sepay-signature"];
   const timestamp = req.headers["x-sepay-timestamp"];
-  
+
   if (signature && timestamp && req.body && config.webhookSecret) {
     // Thuật toán thực tế của SePay: HMAC-SHA256(Secret, timestamp + "." + JSON.stringify(body))
     const payloadStr = JSON.stringify(req.body);
     const dataToHash = timestamp + "." + payloadStr;
-    
+
     const expectedSignature = crypto
       .createHmac("sha256", config.webhookSecret)
       .update(dataToHash)
       .digest("hex");
-      
+
     // SePay sends format: "sha256=xxx"
     const providedSignature = signature.replace(/^sha256=/i, "");
     try {
       if (
         providedSignature.length === expectedSignature.length &&
-        crypto.timingSafeEqual(Buffer.from(providedSignature), Buffer.from(expectedSignature))
+        crypto.timingSafeEqual(
+          Buffer.from(providedSignature),
+          Buffer.from(expectedSignature),
+        )
       ) {
         return true;
       }
@@ -119,11 +122,11 @@ const processWebhook = async (webhookData) => {
 
   // 1. Try finding by extracted code from SePay payload if available
   if (webhookData.code) {
-    order = await Order.findOne({ 
+    order = await Order.findOne({
       $or: [
         { transferContent: webhookData.code.toUpperCase() },
-        { orderCode: webhookData.code }
-      ]
+        { orderCode: webhookData.code },
+      ],
     });
   }
 
@@ -146,14 +149,19 @@ const processWebhook = async (webhookData) => {
     // If it's a completely different transaction reference, the customer transferred money TWICE!
     if (order.transactionRef && order.transactionRef !== incomingRef) {
       // Determine if this is the 2nd payment or 3rd+ payment
-      const isThirdOrMore = order.note && order.note.includes("DUPLICATE_PAYMENT");
+      const isThirdOrMore =
+        order.note && order.note.includes("DUPLICATE_PAYMENT");
       const paymentType = isThirdOrMore ? "EXTRA_PAYMENT" : "DUPLICATE_PAYMENT";
-      
+
       const doubleMsg = `[${paymentType}] CRITICAL LIABILITY: Customer transferred money again for an already paid order. Received: ${transferAmount} VND. Refund Required: ${transferAmount} VND. (New Ref: ${incomingRef})`;
-      
+
       await Order.updateOne(
         { _id: order._id },
-        { $set: { note: order.note ? `${order.note} | ${doubleMsg}` : doubleMsg } }
+        {
+          $set: {
+            note: order.note ? `${order.note} | ${doubleMsg}` : doubleMsg,
+          },
+        },
       );
     }
     return { success: true, message: "Order already paid" };
@@ -164,15 +172,19 @@ const processWebhook = async (webhookData) => {
     const lateMsg = `CRITICAL LIABILITY: Payment received for cancelled order. REFUND REQUIRED. (Received: ${transferAmount}, Ref: ${referenceCode || String(transactionId || "")})`;
     await Order.updateOne(
       { _id: order._id },
-      { 
-        $set: { 
+      {
+        $set: {
           paymentStatus: "REFUND_PENDING",
           "paymentInfo.qrCodeUrl": null,
-          note: order.note ? `${order.note} | ${lateMsg}` : lateMsg
-        } 
-      }
+          note: order.note ? `${order.note} | ${lateMsg}` : lateMsg,
+        },
+      },
     );
-    return { success: true, message: "Payment received for cancelled order. Marked as REFUND_PENDING." };
+    return {
+      success: true,
+      message:
+        "Payment received for cancelled order. Marked as REFUND_PENDING.",
+    };
   }
 
   // Verify transfer amount EXACTLY matches order total (Strict rule from user)
@@ -180,25 +192,32 @@ const processWebhook = async (webhookData) => {
     const noteMsg = `Error: Invalid payment amount (Received: ${transferAmount}, Expected: ${order.totalPrice}). Order not confirmed.`;
     await Order.updateOne(
       { _id: order._id },
-      { $set: { note: order.note ? `${order.note} | ${noteMsg}` : noteMsg } }
+      { $set: { note: order.note ? `${order.note} | ${noteMsg}` : noteMsg } },
     );
-    return { success: true, message: "Payment amount mismatch. Order not confirmed." };
+    return {
+      success: true,
+      message: "Payment amount mismatch. Order not confirmed.",
+    };
   }
 
   // ATOMIC UPDATE to avoid race condition with expirePendingOrders
   // Vô hiệu hóa QR Code ngay sau khi thanh toán thành công để frontend ẩn đi
   const updatedOrder = await Order.findOneAndUpdate(
-    { _id: order._id, paymentStatus: "PENDING", status: { $nin: ["CANCELLED"] } },
-    { 
-      $set: { 
-        paymentStatus: "PAID", 
-        status: "PAID", 
-        paidAt: new Date(), 
-        transactionRef: referenceCode || String(transactionId || ""),
-        "paymentInfo.qrCodeUrl": null
-      } 
+    {
+      _id: order._id,
+      paymentStatus: "PENDING",
+      status: { $nin: ["CANCELLED"] },
     },
-    { new: true }
+    {
+      $set: {
+        paymentStatus: "PAID",
+        status: "CONFIRMED",
+        paidAt: new Date(),
+        transactionRef: referenceCode || String(transactionId || ""),
+        "paymentInfo.qrCodeUrl": null,
+      },
+    },
+    { new: true },
   );
 
   if (!updatedOrder) {
@@ -206,15 +225,19 @@ const processWebhook = async (webhookData) => {
     const lateMsg = `CRITICAL LIABILITY: Payment received but order was just cancelled due to expiration. REFUND REQUIRED. (Received: ${transferAmount}, Ref: ${referenceCode || String(transactionId || "")})`;
     await Order.updateOne(
       { _id: order._id },
-      { 
-        $set: { 
+      {
+        $set: {
           paymentStatus: "REFUND_PENDING",
           "paymentInfo.qrCodeUrl": null,
-          note: order.note ? `${order.note} | ${lateMsg}` : lateMsg
-        } 
-      }
+          note: order.note ? `${order.note} | ${lateMsg}` : lateMsg,
+        },
+      },
     );
-    return { success: true, message: "Payment received for concurrently cancelled order. Marked as REFUND_PENDING." };
+    return {
+      success: true,
+      message:
+        "Payment received for concurrently cancelled order. Marked as REFUND_PENDING.",
+    };
   }
 
   if (updatedOrder.userId) {
@@ -252,9 +275,19 @@ const expirePendingOrders = async () => {
     // Lock and mark EXPIRED atomically to avoid race condition with incoming webhook
     // Xóa QR code để người dùng không chuyển tiền nhầm nữa
     const updated = await Order.findOneAndUpdate(
-      { _id: order._id, paymentStatus: "PENDING", status: { $nin: ["CANCELLED"] } },
-      { $set: { paymentStatus: "EXPIRED", status: "EXPIRED", "paymentInfo.qrCodeUrl": null } },
-      { new: true }
+      {
+        _id: order._id,
+        paymentStatus: "PENDING",
+        status: { $nin: ["CANCELLED"] },
+      },
+      {
+        $set: {
+          paymentStatus: "EXPIRED",
+          status: "CANCELLED",
+          "paymentInfo.qrCodeUrl": null,
+        },
+      },
+      { new: true },
     );
 
     // Only restore stock if we successfully updated it (meaning it wasn't paid concurrently)
@@ -266,7 +299,10 @@ const expirePendingOrders = async () => {
       for (const item of orderItems) {
         if (item.itemType === "MENU_ITEM" && item.menuScheduleItemId) {
           await MenuScheduleItem.findByIdAndUpdate(item.menuScheduleItemId, {
-            $inc: { remainingCount: item.quantity, reservedCount: -item.quantity },
+            $inc: {
+              remainingCount: item.quantity,
+              reservedCount: -item.quantity,
+            },
           });
         } else if (item.itemType === "REGULAR_FOOD" && item.foodId) {
           await Food.findByIdAndUpdate(item.foodId, {
@@ -275,10 +311,10 @@ const expirePendingOrders = async () => {
         }
       }
 
-      // Move any scanned queue entry out of the active kitchen flow.
+      // Cancel queue entry
       await Queue.findOneAndUpdate(
         { orderId: order._id },
-        { $set: { status: "SKIPPED" } },
+        { $set: { status: "CANCELLED" } },
       );
 
       expiredCount++;
