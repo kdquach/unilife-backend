@@ -4,17 +4,7 @@ const MenuScheduleItem = require("../menuScheduleItem/menuScheduleItem.model");
 const Food = require("../food/food.model");
 const userNotificationService = require("../userNotification/userNotification.service");
 const { getPagination } = require("../../utils/pagination.util");
-
-const isToday = (date) => {
-  if (!date) return false;
-  const value = new Date(date);
-  const today = new Date();
-  return (
-    value.getFullYear() === today.getFullYear() &&
-    value.getMonth() === today.getMonth() &&
-    value.getDate() === today.getDate()
-  );
-};
+const { isSameVietnamDay } = require("../../utils/date.util");
 
 const create = (data) => Cart.create(data);
 
@@ -101,7 +91,7 @@ const getMyCart = async (userId) => {
       } else if (menuSchedule.status !== "PUBLISHED") {
         isValid = false;
         reason = "The menu schedule is not published";
-      } else if (!isToday(menuSchedule.date)) {
+      } else if (!isSameVietnamDay(menuSchedule.date)) {
         isValid = false;
         reason = "Only today's menu items can be ordered";
       } else if (msi.remainingCount <= 0) {
@@ -222,7 +212,7 @@ const addItem = async (userId, data) => {
       err.statusCode = 400;
       throw err;
     }
-    if (!isToday(msi.menuScheduleId.date)) {
+    if (!isSameVietnamDay(msi.menuScheduleId.date)) {
       const err = new Error("Only today's menu items can be added to cart");
       err.statusCode = 400;
       throw err;
@@ -357,7 +347,7 @@ const updateItem = async (userId, cartItemId, data) => {
       throw err;
     }
 
-    if (!isToday(msi.menuScheduleId.date)) {
+    if (!isSameVietnamDay(msi.menuScheduleId.date)) {
       const err = new Error("Only today's menu items can be updated in cart.");
       err.statusCode = 400;
       throw err;

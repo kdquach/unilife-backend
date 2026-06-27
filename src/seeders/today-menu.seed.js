@@ -8,16 +8,7 @@ const MenuSchedule = require("../modules/menuSchedule/menuSchedule.model");
 const MenuScheduleItem = require("../modules/menuScheduleItem/menuScheduleItem.model");
 const CartItem = require("../modules/cartItem/cartItem.model");
 const User = require("../modules/user/user.model");
-
-const todayBounds = () => {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-
-  const end = new Date();
-  end.setHours(23, 59, 59, 999);
-
-  return { start, end };
-};
+const { getVietnamDayRange } = require("../utils/date.util");
 
 const categories = [
   "Rice Meals",
@@ -152,7 +143,7 @@ const seedTodayMenu = async () => {
     isActive: true,
   }).sort({ role: -1, createdAt: 1 });
 
-  const { start, end } = todayBounds();
+  const { start, end } = getVietnamDayRange();
 
   await MenuSchedule.updateMany(
     {

@@ -2,6 +2,7 @@ const Queue = require("./queue.model");
 const Order = require("../order/order.model");
 const userNotificationService = require("../userNotification/userNotification.service");
 const { getPagination } = require("../../utils/pagination.util");
+const { getVietnamDayRange } = require("../../utils/date.util");
 
 const ACTIVE_QUEUE_STATUSES = ["WAITING", "SERVING"];
 const INVALID_SCAN_ORDER_STATUSES = ["CANCELLED", "EXPIRED", "COMPLETED"];
@@ -17,15 +18,7 @@ const toArray = (value) => {
     .filter(Boolean);
 };
 
-const getDayRange = (date = new Date()) => {
-  const start = new Date(date);
-  start.setHours(0, 0, 0, 0);
-
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-
-  return { start, end };
-};
+const getDayRange = (date = new Date()) => getVietnamDayRange(date);
 
 const buildDateFilter = (query = {}) => {
   if (query.fromDate || query.toDate) {
@@ -36,7 +29,7 @@ const buildDateFilter = (query = {}) => {
   }
 
   const { start, end } = getDayRange();
-  return { $gte: start, $lt: end };
+  return { $gte: start, $lte: end };
 };
 
 const populateQueueOrder = (query) =>
@@ -65,7 +58,7 @@ const getPopulatedById = (id) => populateQueueOrder(Queue.findById(id));
 const getNextQueueNumber = async (scannedAt = new Date()) => {
   const { start, end } = getDayRange(scannedAt);
   const latest = await Queue.findOne({
-    scannedAt: { $gte: start, $lt: end },
+    scannedAt: { $gte: start, $lte: end },
   }).sort({ queueNumber: -1 });
 
   return (latest?.queueNumber || 0) + 1;

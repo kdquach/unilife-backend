@@ -14,19 +14,9 @@ const {
   getSepayConfig,
 } = require("../payment/payment.service");
 const User = require("../user/user.model");
+const { isSameVietnamDay } = require("../../utils/date.util");
 
 const PAYMENT_EXPIRY_MINUTES = 15;
-
-const isToday = (date) => {
-  if (!date) return false;
-  const value = new Date(date);
-  const today = new Date();
-  return (
-    value.getFullYear() === today.getFullYear() &&
-    value.getMonth() === today.getMonth() &&
-    value.getDate() === today.getDate()
-  );
-};
 
 /**
  * Generate order code: 6-digit numeric string (e.g., 234199)
@@ -234,7 +224,7 @@ const checkout = async (userId, data = {}) => {
         if (
           !menuItem.menuScheduleId ||
           menuItem.menuScheduleId.status !== "PUBLISHED" ||
-          !isToday(menuItem.menuScheduleId.date)
+          !isSameVietnamDay(menuItem.menuScheduleId.date)
         ) {
           throw Object.assign(
             new Error(`Only today's menu items can be checked out`),
