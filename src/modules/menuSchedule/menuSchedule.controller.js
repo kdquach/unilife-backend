@@ -8,6 +8,9 @@ const create = asyncHandler(async (req, res) =>
 const list = asyncHandler(async (req, res) =>
   success(res, await service.list(req.query), "Get list successfully"),
 );
+const getStaffList = asyncHandler(async (req, res) =>
+  success(res, await service.getStaffList(req.query), "Get staff list successfully"),
+);
 const getToday = asyncHandler(async (req, res) =>
   success(res, await service.getToday(), "Get today menu successfully"),
 );
@@ -25,5 +28,5 @@ const deleteById = asyncHandler(async (req, res) =>
   success(res, await service.deleteById(req.params.id), "Deleted successfully"),
 );
 
-module.exports = { create, list, getToday, getById, updateById, deleteById };
+module.exports = { create, list, getToday, getById, updateById, deleteById, getStaffList };
 
