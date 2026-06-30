@@ -192,4 +192,81 @@ describe("GET /api/v1/menu-schedules/staff", () => {
       expect(schedule.items[0].foodId.categoryId.name).toBe("Main Course");
     });
   });
+
+  describe("GET /api/v1/menu-schedules/staff/:id", () => {
+    let token, scheduleId;
+
+    beforeEach(async () => {
+      const auth = await createTestUser(ROLES.KITCHEN_STAFF);
+      token = auth.token;
+
+      const category = await FoodCategory.create({ name: "Dessert", description: "Desc" });
+      const food1 = await Food.create({ name: "Cake", categoryId: category._id, price: 10000, status: "AVAILABLE" });
+      const food2 = await Food.create({ name: "Ice Cream", categoryId: category._id, price: 15000, status: "AVAILABLE" });
+
+      const schedule = await MenuSchedule.create({
+        status: "PUBLISHED",
+        date: new Date(),
+      });
+      scheduleId = schedule._id.toString();
+
+      // Active Item
+      await MenuScheduleItem.create({
+        menuScheduleId: schedule._id,
+        foodId: food1._id,
+        maxServing: 50,
+        remainingCount: 50,
+        isActive: true,
+      });
+
+      // Inactive Item
+      await MenuScheduleItem.create({
+        menuScheduleId: schedule._id,
+        foodId: food2._id,
+        maxServing: 20,
+        remainingCount: 20,
+        isActive: false,
+      });
+    });
+
+    it("should return 401 if no authorization header is provided", async () => {
+      const res = await request(app).get(`/api/v1/menu-schedules/staff/${scheduleId}`);
+      expect(res.status).toBe(401);
+    });
+
+    it("should return 403 if user is a CUSTOMER", async () => {
+      const { token: customerToken } = await createTestUser(ROLES.CUSTOMER);
+      const res = await request(app)
+        .get(`/api/v1/menu-schedules/staff/${scheduleId}`)
+        .set("Authorization", `Bearer ${customerToken}`);
+      expect(res.status).toBe(403);
+    });
+
+    it("should return 404 if schedule ID does not exist", async () => {
+      const fakeId = new mongoose.Types.ObjectId();
+      const res = await request(app)
+        .get(`/api/v1/menu-schedules/staff/${fakeId}`)
+        .set("Authorization", `Bearer ${token}`);
+      expect(res.status).toBe(404);
+    });
+
+    it("should return 200 and only active items by default", async () => {
+      const res = await request(app)
+        .get(`/api/v1/menu-schedules/staff/${scheduleId}`)
+        .set("Authorization", `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.items).toHaveLength(1);
+      expect(res.body.data.items[0].foodId.name).toBe("Cake");
+    });
+
+    it("should return 200 and include inactive items if includeInactive=true", async () => {
+      const res = await request(app)
+        .get(`/api/v1/menu-schedules/staff/${scheduleId}?includeInactive=true`)
+        .set("Authorization", `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.items).toHaveLength(2);
+    });
+  });
 });

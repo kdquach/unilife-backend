@@ -11,7 +11,8 @@ router.get("/today", controller.getToday);
 router.get("/", controller.list);
 
 // Protected routes (Staff View)
-router.get("/staff", authenticate, authorize(ROLES.KITCHEN_STAFF, ROLES.MANAGER, ROLES.ADMIN), controller.getStaffList);
+router.get("/staff", authenticate, authorize(ROLES.KITCHEN_STAFF, ROLES.MANAGER, ROLES.ADMIN), controller.listMenuScheduleForStaff);
+router.get("/staff/:id", authenticate, authorize(ROLES.KITCHEN_STAFF, ROLES.MANAGER, ROLES.ADMIN), controller.getMenuScheduleByIdForStaff);
 
 router.get("/:id", controller.getById);
 
