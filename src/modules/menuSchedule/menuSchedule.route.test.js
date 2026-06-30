@@ -148,6 +148,15 @@ describe("GET /api/v1/menu-schedules/staff", () => {
       expect(res.body.data.items[0].status).toBe("DRAFT");
     });
 
+    it("should filter menu schedules by multiple statuses (e.g., DRAFT,PUBLISHED)", async () => {
+      const res = await request(app)
+        .get("/api/v1/menu-schedules/staff?status=DRAFT,PUBLISHED")
+        .set("Authorization", `Bearer ${token}`);
+      
+      expect(res.status).toBe(200);
+      expect(res.body.data.items).toHaveLength(3); // Since we seeded 1 DRAFT and 2 PUBLISHED
+    });
+
     it("should filter menu schedules by exact date branch", async () => {
       const res = await request(app)
         .get("/api/v1/menu-schedules/staff?date=2026-06-26")

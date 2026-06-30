@@ -23,7 +23,10 @@ const create = (data) => MenuSchedule.create(data);
 const list = async (query = {}) => {
   const { page, limit, skip } = getPagination(query);
   const filter = {};
-  if (query.status) filter.status = String(query.status);
+  if (query.status) {
+    const statuses = String(query.status).split(",");
+    filter.status = statuses.length > 1 ? { $in: statuses } : statuses[0];
+  }
 
   if (query.date) {
     const { start, end } = getVietnamDayRange(dateOnly(query.date));
@@ -56,7 +59,10 @@ const list = async (query = {}) => {
 const listMenuScheduleForStaff = async (query = {}) => {
   const { page, limit, skip } = getPagination(query);
   const filter = {};
-  if (query.status) filter.status = String(query.status);
+  if (query.status) {
+    const statuses = String(query.status).split(",");
+    filter.status = statuses.length > 1 ? { $in: statuses } : statuses[0];
+  }
 
   if (query.date) {
     const { start, end } = getVietnamDayRange(dateOnly(query.date));
