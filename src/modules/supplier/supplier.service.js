@@ -1,4 +1,5 @@
 const Supplier = require("./supplier.model");
+const IngredientBatch = require("../ingredientBatch/ingredientBatch.model");
 const { getPagination } = require("../../utils/pagination.util");
 
 const create = (data) => Supplier.create(data);
@@ -33,4 +34,23 @@ const updateById = (id, data) =>
   Supplier.findByIdAndUpdate(id, data, { new: true, runValidators: true });
 const deleteById = (id) => Supplier.findByIdAndDelete(id);
 
-module.exports = { create, list, getById, updateById, deleteById };
+const getBatches = async (supplierId, query = {}) => {
+  const { page, limit, skip } = getPagination(query);
+  const filter = { supplierId };
+
+  const [items, total] = await Promise.all([
+    IngredientBatch.find(filter)
+      .populate("ingredientId", "name unit")
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 }),
+    IngredientBatch.countDocuments(filter),
+  ]);
+
+  return {
+    items,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  };
+};
+
+module.exports = { create, list, getById, updateById, deleteById, getBatches };
