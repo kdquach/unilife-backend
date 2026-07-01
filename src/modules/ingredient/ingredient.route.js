@@ -22,18 +22,27 @@ router.get(
   authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.KITCHEN_STAFF),
   controller.list,
 );
-router.post("/", controller.create);
+router.post("/", authorize(ROLES.ADMIN, ROLES.MANAGER), controller.create);
 router.post(
   "/:id/adjust-stock",
   authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.KITCHEN_STAFF),
   controller.adjustStock,
+);
+router.post(
+  "/:id/stock-import",
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
+  controller.recordStockImport,
 );
 router.get(
   "/:id",
   authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.KITCHEN_STAFF),
   controller.getById,
 );
-router.patch("/:id", controller.updateById);
+router.patch(
+  "/:id",
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
+  controller.updateById,
+);
 router.delete("/:id", controller.deleteById);
 
 module.exports = router;

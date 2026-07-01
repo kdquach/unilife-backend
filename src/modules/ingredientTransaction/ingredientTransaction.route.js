@@ -9,17 +9,17 @@ const router = express.Router();
 router.use(authenticate);
 router.get(
   "/",
-  authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.KITCHEN_STAFF),
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
   controller.list,
 );
 router.post(
   "/",
-  authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.KITCHEN_STAFF),
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
   controller.create,
 );
 router.get(
   "/:id",
-  authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.KITCHEN_STAFF),
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
   controller.getById,
 );
 router.patch(
