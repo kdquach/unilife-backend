@@ -81,4 +81,39 @@ describe("Food Service - Kitchen Staff Foods", () => {
       message: "Food not found",
     });
   });
+
+  it("searches active foods for kitchen staff by name or description", async () => {
+    await Food.create([
+      {
+        name: "Chicken Rice",
+        description: "Steamed chicken",
+        price: 30000,
+        isActive: true,
+      },
+      {
+        name: "Vegetable Soup",
+        description: "Chicken broth",
+        price: 25000,
+        isActive: true,
+      },
+      {
+        name: "Archived Chicken",
+        description: "Inactive item",
+        price: 20000,
+        isActive: false,
+      },
+    ]);
+
+    const result = await foodService.searchForKitchen({
+      keyword: "chicken",
+      page: 1,
+      limit: 10,
+    });
+
+    expect(result.items.map((item) => item.name).sort()).toEqual([
+      "Chicken Rice",
+      "Vegetable Soup",
+    ]);
+    expect(result.pagination.total).toBe(2);
+  });
 });

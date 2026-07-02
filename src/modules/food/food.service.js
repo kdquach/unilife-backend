@@ -94,6 +94,7 @@ const list = async (query = {}, options = {}) => {
 };
 
 const listForKitchen = (query = {}) => list(query, { defaultIsActive: true });
+const searchForKitchen = (query = {}) => list(query, { defaultIsActive: true });
 const search = (query = {}) => list(query, { defaultIsActive: true });
 const filter = (query = {}) => list(query, { defaultIsActive: true });
 
@@ -185,6 +186,7 @@ module.exports = {
   create,
   list,
   listForKitchen,
+  searchForKitchen,
   search,
   filter,
   getFilterOptions,
