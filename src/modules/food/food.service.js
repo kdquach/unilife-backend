@@ -155,6 +155,27 @@ const getFilterOptions = async (query = {}) => {
 const getById = (id) =>
   Food.findById(id).populate("categoryId", "name isActive");
 
+const getByIdForKitchen = async (id) => {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    const err = new Error("Invalid food id");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const food = await Food.findOne({ _id: id, isActive: true }).populate(
+    "categoryId",
+    "name isActive",
+  );
+
+  if (!food) {
+    const err = new Error("Food not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  return food;
+};
+
 const updateById = (id, data) =>
   Food.findByIdAndUpdate(id, data, { new: true, runValidators: true });
 
@@ -168,6 +189,7 @@ module.exports = {
   filter,
   getFilterOptions,
   getById,
+  getByIdForKitchen,
   updateById,
   deleteById,
   buildFilter,

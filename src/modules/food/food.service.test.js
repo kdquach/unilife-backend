@@ -50,4 +50,35 @@ describe("Food Service - Kitchen Staff Foods", () => {
     expect(result.items[0].categoryId.name).toBe("Main Dishes");
     expect(result.pagination.total).toBe(1);
   });
+
+  it("gets active food detail for kitchen staff", async () => {
+    const category = await FoodCategory.create({ name: "Noodles" });
+    const food = await Food.create({
+      categoryId: category._id,
+      name: "Beef Noodle",
+      description: "Hot dish",
+      price: 35000,
+      isActive: true,
+    });
+
+    const result = await foodService.getByIdForKitchen(food._id.toString());
+
+    expect(result.name).toBe("Beef Noodle");
+    expect(result.categoryId.name).toBe("Noodles");
+  });
+
+  it("does not return inactive food detail for kitchen staff", async () => {
+    const food = await Food.create({
+      name: "Inactive Food",
+      price: 10000,
+      isActive: false,
+    });
+
+    await expect(
+      foodService.getByIdForKitchen(food._id.toString()),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Food not found",
+    });
+  });
 });

@@ -12,6 +12,7 @@ const kitchenStaffAccess = [
 ];
 
 router.get("/kitchen", kitchenStaffAccess, controller.listForKitchen);
+router.get("/kitchen/:id", kitchenStaffAccess, controller.getByIdForKitchen);
 
 // feature filter food
 router.get("/filter-options", controller.filterOptions);

@@ -45,6 +45,14 @@ const getById = asyncHandler(async (req, res) => {
   return success(res, food, "Get detail successfully");
 });
 
+const getByIdForKitchen = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.getByIdForKitchen(req.params.id),
+    "Get kitchen food detail successfully",
+  ),
+);
+
 const updateById = asyncHandler(async (req, res) =>
   success(
     res,
@@ -65,6 +73,7 @@ module.exports = {
   filter,
   filterOptions,
   getById,
+  getByIdForKitchen,
   updateById,
   deleteById,
 };
