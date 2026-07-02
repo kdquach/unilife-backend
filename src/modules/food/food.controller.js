@@ -26,6 +26,22 @@ const searchForKitchen = asyncHandler(async (req, res) =>
   ),
 );
 
+const filterForKitchen = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.filterForKitchen(req.query),
+    "Filter kitchen foods successfully",
+  ),
+);
+
+const kitchenFilterOptions = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.getKitchenFilterOptions(req.query),
+    "Get kitchen food filter options successfully",
+  ),
+);
+
 // feature search food
 const search = asyncHandler(async (req, res) =>
   success(res, await service.search(req.query), "Search foods successfully"),
@@ -78,6 +94,8 @@ module.exports = {
   list,
   listForKitchen,
   searchForKitchen,
+  filterForKitchen,
+  kitchenFilterOptions,
   search,
   filter,
   filterOptions,

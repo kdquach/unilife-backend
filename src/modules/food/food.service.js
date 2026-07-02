@@ -95,6 +95,7 @@ const list = async (query = {}, options = {}) => {
 
 const listForKitchen = (query = {}) => list(query, { defaultIsActive: true });
 const searchForKitchen = (query = {}) => list(query, { defaultIsActive: true });
+const filterForKitchen = (query = {}) => list(query, { defaultIsActive: true });
 const search = (query = {}) => list(query, { defaultIsActive: true });
 const filter = (query = {}) => list(query, { defaultIsActive: true });
 
@@ -153,6 +154,8 @@ const getFilterOptions = async (query = {}) => {
   };
 };
 
+const getKitchenFilterOptions = (query = {}) => getFilterOptions(query);
+
 const getById = (id) =>
   Food.findById(id).populate("categoryId", "name isActive");
 
@@ -187,9 +190,11 @@ module.exports = {
   list,
   listForKitchen,
   searchForKitchen,
+  filterForKitchen,
   search,
   filter,
   getFilterOptions,
+  getKitchenFilterOptions,
   getById,
   getByIdForKitchen,
   updateById,
