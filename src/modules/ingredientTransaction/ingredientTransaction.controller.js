@@ -6,13 +6,17 @@ const create = asyncHandler(async (req, res) =>
   success(res, await service.create(req.body), "Created successfully", 201),
 );
 const list = asyncHandler(async (req, res) =>
-  success(res, await service.list(req.query), "Get list successfully"),
+  success(
+    res,
+    await service.list(req.query),
+    "Get inventory transaction history successfully",
+  ),
 );
 const getById = asyncHandler(async (req, res) => {
   const item = await service.getById(req.params.id);
   if (!item) return fail(res, "Ingredient transaction not found", 404);
 
-  return success(res, item, "Get detail successfully");
+  return success(res, item, "Get inventory transaction detail successfully");
 });
 const updateById = asyncHandler(async (req, res) =>
   success(

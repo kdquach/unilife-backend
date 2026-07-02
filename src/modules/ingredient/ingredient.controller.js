@@ -29,6 +29,14 @@ const adjustStock = asyncHandler(async (req, res) =>
     "Adjust ingredient stock successfully",
   ),
 );
+const recordStockImport = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.recordStockImport(req.params.id, req.body, req.user),
+    "Record stock import successfully",
+    201,
+  ),
+);
 const getById = asyncHandler(async (req, res) => {
   const item = await service.getById(req.params.id);
   if (!item) return fail(res, "Ingredient not found", 404);
@@ -52,6 +60,7 @@ module.exports = {
   search,
   filter,
   adjustStock,
+  recordStockImport,
   getById,
   updateById,
   deleteById,
