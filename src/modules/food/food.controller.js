@@ -10,6 +10,38 @@ const list = asyncHandler(async (req, res) =>
   success(res, await service.list(req.query), "Get list successfully"),
 );
 
+const listForKitchen = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.listForKitchen(req.query),
+    "Get kitchen foods successfully",
+  ),
+);
+
+const searchForKitchen = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.searchForKitchen(req.query),
+    "Search kitchen foods successfully",
+  ),
+);
+
+const filterForKitchen = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.filterForKitchen(req.query),
+    "Filter kitchen foods successfully",
+  ),
+);
+
+const kitchenFilterOptions = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.getKitchenFilterOptions(req.query),
+    "Get kitchen food filter options successfully",
+  ),
+);
+
 // feature search food
 const search = asyncHandler(async (req, res) =>
   success(res, await service.search(req.query), "Search foods successfully"),
@@ -37,6 +69,14 @@ const getById = asyncHandler(async (req, res) => {
   return success(res, food, "Get detail successfully");
 });
 
+const getByIdForKitchen = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.getByIdForKitchen(req.params.id),
+    "Get kitchen food detail successfully",
+  ),
+);
+
 const updateById = asyncHandler(async (req, res) =>
   success(
     res,
@@ -52,10 +92,15 @@ const deleteById = asyncHandler(async (req, res) =>
 module.exports = {
   create,
   list,
+  listForKitchen,
+  searchForKitchen,
+  filterForKitchen,
+  kitchenFilterOptions,
   search,
   filter,
   filterOptions,
   getById,
+  getByIdForKitchen,
   updateById,
   deleteById,
 };
