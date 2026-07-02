@@ -10,6 +10,14 @@ const list = asyncHandler(async (req, res) =>
   success(res, await service.list(req.query), "Get list successfully"),
 );
 
+const listForKitchen = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.listForKitchen(req.query),
+    "Get kitchen foods successfully",
+  ),
+);
+
 // feature search food
 const search = asyncHandler(async (req, res) =>
   success(res, await service.search(req.query), "Search foods successfully"),
@@ -52,6 +60,7 @@ const deleteById = asyncHandler(async (req, res) =>
 module.exports = {
   create,
   list,
+  listForKitchen,
   search,
   filter,
   filterOptions,

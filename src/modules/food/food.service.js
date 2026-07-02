@@ -93,6 +93,7 @@ const list = async (query = {}, options = {}) => {
   };
 };
 
+const listForKitchen = (query = {}) => list(query, { defaultIsActive: true });
 const search = (query = {}) => list(query, { defaultIsActive: true });
 const filter = (query = {}) => list(query, { defaultIsActive: true });
 
@@ -162,6 +163,7 @@ const deleteById = (id) => Food.findByIdAndDelete(id);
 module.exports = {
   create,
   list,
+  listForKitchen,
   search,
   filter,
   getFilterOptions,

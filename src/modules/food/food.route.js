@@ -1,8 +1,18 @@
 const express = require("express");
 const controller = require("./food.controller");
 const { authenticate } = require("../../middlewares/auth.middleware");
+const { authorize } = require("../../middlewares/role.middleware");
+const ROLES = require("../../constants/roles.constant");
 
 const router = express.Router();
+
+const kitchenStaffAccess = [
+  authenticate,
+  authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.KITCHEN_STAFF),
+];
+
+router.get("/kitchen", kitchenStaffAccess, controller.listForKitchen);
+
 // feature filter food
 router.get("/filter-options", controller.filterOptions);
 router.get("/filter", controller.filter);
