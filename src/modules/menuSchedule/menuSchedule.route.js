@@ -2,6 +2,7 @@ const express = require("express");
 const controller = require("./menuSchedule.controller");
 const { authenticate } = require("../../middlewares/auth.middleware");
 const { authorize } = require("../../middlewares/role.middleware");
+const { writeActivityLog } = require("../../middlewares/activityLog.middleware");
 const ROLES = require("../../constants/roles.constant");
 
 const router = express.Router();
@@ -18,9 +19,9 @@ router.get("/:id", controller.getById);
 
 // Protected routes (require login for manage/edit)
 router.use(authenticate);
-router.post("/", controller.create);
-router.patch("/:id", controller.updateById);
-router.delete("/:id", controller.deleteById);
+router.post("/", writeActivityLog("CREATE_MENU_SCHEDULE", "MenuSchedule"), controller.create);
+router.patch("/:id", writeActivityLog("UPDATE_MENU_SCHEDULE", "MenuSchedule"), controller.updateById);
+router.delete("/:id", writeActivityLog("DELETE_MENU_SCHEDULE", "MenuSchedule"), controller.deleteById);
 
 module.exports = router;
 
