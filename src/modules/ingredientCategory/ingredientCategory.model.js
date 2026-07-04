@@ -12,8 +12,4 @@ const ingredientCategorySchema = new mongoose.Schema(
   },
 );
 
-ingredientCategorySchema.virtual("ingredientCategoryId").get(function () {
-  return this._id.toString();
-});
-
 module.exports = mongoose.model("IngredientCategory", ingredientCategorySchema);

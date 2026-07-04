@@ -6,7 +6,9 @@ const supplierSchema = new mongoose.Schema(
     contactName: { type: String, default: null },
     phone: { type: String, trim: true, default: null },
     address: { type: String, default: null },
+    note: { type: String, default: null },
     isActive: { type: Boolean, default: true, index: true },
+    deletedAt: { type: Date, default: null, index: true },
   },
   {
     toJSON: { virtuals: true },
