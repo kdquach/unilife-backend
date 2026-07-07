@@ -36,9 +36,9 @@ beforeEach(async () => {
   await Order.deleteMany({});
 });
 
-const createTestUser = async (role) => {
+const createTestUser = async (role, email = "user@test.com") => {
   const user = await User.create({
-    email: `${role.toLowerCase()}@test.com`,
+    email: email,
     passwordHash: "hashedpassword",
     fullName: "Test User " + role,
     role,
@@ -207,11 +207,11 @@ describe("GET /api/v1/ratings", () => {
     });
   });
 
-  describe("GET /api/v1/ratings/:id", () => {
+    describe("GET /api/v1/ratings/:id", () => {
     let token, ratingId;
 
     beforeEach(async () => {
-      const auth = await createTestUser(ROLES.COUNTER_STAFF);
+      const auth = await createTestUser(ROLES.COUNTER_STAFF, "staff1@t.com");
       token = auth.token;
 
       const customer = await User.create({
@@ -288,6 +288,177 @@ describe("GET /api/v1/ratings", () => {
       expect(res.body.data.userId.isActive).toBeUndefined();
       expect(res.body.data.userId.createdAt).toBeUndefined();
     });
+    });
+  });
+
+  describe("PATCH /api/v1/ratings/:id/reply", () => {
+    let token, customerToken, ratingId;
+
+    beforeEach(async () => {
+      const staffAuth = await createTestUser(ROLES.COUNTER_STAFF, "staff2@t.com");
+      token = staffAuth.token;
+
+      const customerAuth = await createTestUser(ROLES.CUSTOMER, "cust3@t.com");
+      customerToken = customerAuth.token;
+
+      const rating = await Rating.create({
+        userId: customerAuth.user._id,
+        ratingType: "FOOD",
+        stars: 3,
+        comment: "Average",
+      });
+      ratingId = rating._id.toString();
+    });
+
+    describe("Authentication & Authorization", () => {
+      it("should return 401 if no token provided", async () => {
+        const res = await request(app)
+          .patch(`/api/v1/ratings/${ratingId}/reply`)
+          .send({ staffReply: "Thanks" });
+        expect(res.status).toBe(401);
+      });
+
+      it("should return 403 for CUSTOMER role", async () => {
+        const res = await request(app)
+          .patch(`/api/v1/ratings/${ratingId}/reply`)
+          .set("Authorization", `Bearer ${customerToken}`)
+          .send({ staffReply: "Thanks" });
+        expect(res.status).toBe(403);
+      });
+    });
+
+    describe("Functionality", () => {
+      it("should return 400 if ID is invalid format", async () => {
+        const res = await request(app)
+          .patch("/api/v1/ratings/invalid-id/reply")
+          .set("Authorization", `Bearer ${token}`)
+          .send({ staffReply: "Thanks" });
+
+        expect(res.status).toBe(400);
+        expect(res.body.message).toBe("Invalid Rating ID");
+      });
+
+      it("should return 400 if staffReply is missing or empty", async () => {
+        const res1 = await request(app)
+          .patch(`/api/v1/ratings/${ratingId}/reply`)
+          .set("Authorization", `Bearer ${token}`)
+          .send({}); // Missing
+        
+        expect(res1.status).toBe(400);
+        expect(res1.body.message).toBe("staffReply is required");
+
+        const res2 = await request(app)
+          .patch(`/api/v1/ratings/${ratingId}/reply`)
+          .set("Authorization", `Bearer ${token}`)
+          .send({ staffReply: "   " }); // Empty
+        
+        expect(res2.status).toBe(400);
+        expect(res2.body.message).toBe("staffReply is required");
+      });
+
+      it("should return 404 if ID is valid but not found", async () => {
+        const fakeId = new mongoose.Types.ObjectId();
+        const res = await request(app)
+          .patch(`/api/v1/ratings/${fakeId}/reply`)
+          .set("Authorization", `Bearer ${token}`)
+          .send({ staffReply: "Thanks" });
+
+        expect(res.status).toBe(404);
+        expect(res.body.message).toBe("Rating not found");
+      });
+
+      it("should return 200 and update rating successfully", async () => {
+        const res = await request(app)
+          .patch(`/api/v1/ratings/${ratingId}/reply`)
+          .set("Authorization", `Bearer ${token}`)
+          .send({ staffReply: "Thank you for the feedback!" });
+
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.message).toBe("Replied successfully");
+        
+        const updatedRating = await Rating.findById(ratingId);
+        expect(updatedRating.staffReply).toBe("Thank you for the feedback!");
+        expect(updatedRating.repliedBy).toBeDefined();
+        expect(updatedRating.repliedAt).toBeDefined();
+      });
+    });
+  });
+
+  describe("POST /api/v1/ratings", () => {
+    let customerToken;
+    beforeEach(async () => {
+      const auth = await createTestUser(ROLES.CUSTOMER);
+      customerToken = auth.token;
+    });
+
+    it("should return 401 if not authenticated", async () => {
+      const res = await request(app).post("/api/v1/ratings").send({ stars: 5 });
+      expect(res.status).toBe(401);
+    });
+
+    it("should ignore injected fields and create successfully", async () => {
+      const fakeStaffReply = "Hacked Reply";
+      const fakeUserId = new mongoose.Types.ObjectId();
+      
+      const res = await request(app)
+        .post("/api/v1/ratings")
+        .set("Authorization", `Bearer ${customerToken}`)
+        .send({ 
+          stars: 4, 
+          comment: "Good",
+          userId: fakeUserId, // mass assignment attempt
+          staffReply: fakeStaffReply // mass assignment attempt
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      
+      const rating = await Rating.findById(res.body.data._id);
+      expect(rating.staffReply).toBeNull(); // Should ignore injection
+      expect(rating.userId.toString()).not.toBe(fakeUserId.toString()); // Should override with logged in user ID
+    });
+  });
+
+  describe("PATCH /api/v1/ratings/:id", () => {
+    let customerToken1, customerToken2, ratingId;
+    beforeEach(async () => {
+      const auth1 = await createTestUser(ROLES.CUSTOMER, "c1@t.com");
+      customerToken1 = auth1.token;
+
+      const auth2 = await createTestUser(ROLES.CUSTOMER, "c2@t.com");
+      customerToken2 = auth2.token;
+
+      const rating = await Rating.create({
+        userId: auth1.user._id,
+        stars: 3,
+        comment: "Average",
+      });
+      ratingId = rating._id.toString();
+    });
+
+    it("should return 401 if not authenticated", async () => {
+      const res = await request(app).patch(`/api/v1/ratings/${ratingId}`).send({ stars: 5 });
+      expect(res.status).toBe(401);
+    });
+
+    it("should return 403 if trying to update someone else's rating", async () => {
+      const res = await request(app)
+        .patch(`/api/v1/ratings/${ratingId}`)
+        .set("Authorization", `Bearer ${customerToken2}`) // User 2 trying to update User 1's rating
+        .send({ stars: 5 });
+
+      expect(res.status).toBe(403);
+    });
+
+    it("should update successfully if owns rating", async () => {
+      const res = await request(app)
+        .patch(`/api/v1/ratings/${ratingId}`)
+        .set("Authorization", `Bearer ${customerToken1}`)
+        .send({ stars: 4 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.stars).toBe(4);
     });
   });
 });

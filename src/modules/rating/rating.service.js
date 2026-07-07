@@ -140,15 +140,36 @@ const list = async (query = {}) => {
  */
 const getById = async (id) => {
   return Rating.findById(id).populate([
-    { path: "userId", select: "-passwordHash -isActive -createdAt -updatedAt -__v" },
+    {
+      path: "userId",
+      select: "-passwordHash -isActive -createdAt -updatedAt -__v",
+    },
     { path: "foodId", select: "-createdAt -updatedAt -__v" },
     { path: "orderId", select: "-createdAt -updatedAt -__v" },
-    { path: "repliedBy", select: "-passwordHash -isActive -createdAt -updatedAt -__v" },
+    {
+      path: "repliedBy",
+      select: "-passwordHash -isActive -createdAt -updatedAt -__v",
+    },
   ]);
 };
 
 const updateById = (id, data) =>
   Rating.findByIdAndUpdate(id, data, { new: true, runValidators: true });
+
 const deleteById = (id) => Rating.findByIdAndDelete(id);
 
-module.exports = { create, list, getById, updateById, deleteById };
+/**
+ * Reply to a rating
+ * @param {String} id Rating ObjectId
+ * @param {String} staffReply Content of the reply
+ * @param {String} repliedBy User ObjectId of the staff member
+ * @returns {Promise<Object|null>} Updated rating document
+ */
+const replyRating = (id, staffReply, repliedBy) =>
+  Rating.findByIdAndUpdate(
+    id,
+    { staffReply, repliedBy, repliedAt: new Date() },
+    { new: true, runValidators: true },
+  );
+
+module.exports = { create, list, getById, updateById, deleteById, replyRating };
