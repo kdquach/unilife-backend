@@ -693,22 +693,25 @@ const seedDatabase = async () => {
     orderId: IDS.orders.preorder,
     queueNumber: 1,
     status: "WAITING",
-    calledAt: null,
-    completedAt: null,
+    scannedAt: now,
+    servedAt: null,
+    doneAt: null,
   });
   await upsertById(Queue, oid("665000000000000000001802"), {
     orderId: IDS.orders.walkin,
     queueNumber: 2,
-    status: "CALLED",
-    calledAt: now,
-    completedAt: null,
+    status: "SERVING",
+    scannedAt: now,
+    servedAt: now,
+    doneAt: null,
   });
   await upsertById(Queue, oid("665000000000000000001803"), {
     orderId: IDS.orders.completed,
     queueNumber: 3,
-    status: "COMPLETED",
-    calledAt: yesterday,
-    completedAt: now,
+    status: "DONE",
+    scannedAt: yesterday,
+    servedAt: yesterday,
+    doneAt: now,
   });
 
   console.log("Seeding ratings, notifications, logs...");

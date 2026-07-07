@@ -19,6 +19,9 @@ const menuScheduleSchema = new mongoose.Schema(
   },
 );
 
+menuScheduleSchema.index({ date: -1, status: 1 });
+menuScheduleSchema.index({ date: 1 });
+
 menuScheduleSchema.virtual("menuScheduleId").get(function () {
   return this._id.toString();
 });

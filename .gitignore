@@ -6,3 +6,5 @@ uploads/*
 !uploads/foods/.gitkeep
 npm-debug.log*
 .DS_Store
+skills/
+docs/

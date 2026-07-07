@@ -8,6 +8,27 @@ const create = asyncHandler(async (req, res) =>
 const list = asyncHandler(async (req, res) =>
   success(res, await service.list(req.query), "Get list successfully"),
 );
+const scanOrderQr = asyncHandler(async (req, res) => {
+  const result = await service.scanOrderQr(req.body);
+  return success(
+    res,
+    result,
+    result.created
+      ? "Order scanned and added to kitchen queue"
+      : "Order already exists in kitchen queue",
+    result.created ? 201 : 200,
+  );
+});
+const getMonitorQueue = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.getMonitorQueue(req.query),
+    "Get monitor queue successfully",
+  ),
+);
+const callNextNumber = asyncHandler(async (req, res) =>
+  success(res, await service.callNextNumber(), "Next queue number called"),
+);
 const getById = asyncHandler(async (req, res) =>
   success(res, await service.getById(req.params.id), "Get detail successfully"),
 );
@@ -22,4 +43,13 @@ const deleteById = asyncHandler(async (req, res) =>
   success(res, await service.deleteById(req.params.id), "Deleted successfully"),
 );
 
-module.exports = { create, list, getById, updateById, deleteById };
+module.exports = {
+  create,
+  list,
+  scanOrderQr,
+  getMonitorQueue,
+  callNextNumber,
+  getById,
+  updateById,
+  deleteById,
+};

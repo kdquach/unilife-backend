@@ -34,7 +34,12 @@ const corsOrigin =
       };
 
 app.use(cors({ origin: corsOrigin, credentials: true }));
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ 
+  limit: "10mb",
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
@@ -48,6 +53,7 @@ app.use(
 app.get("/", (req, res) => {
   res.json({ message: "UniLife Backend API", status: "OK" });
 });
+
 
 app.use(process.env.API_PREFIX || "/api/v1", routes);
 app.use(notFoundHandler);

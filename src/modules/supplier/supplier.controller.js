@@ -21,5 +21,12 @@ const updateById = asyncHandler(async (req, res) =>
 const deleteById = asyncHandler(async (req, res) =>
   success(res, await service.deleteById(req.params.id), "Deleted successfully"),
 );
+const getBatches = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.getBatches(req.params.id, req.query),
+    "Get batches successfully",
+  ),
+);
 
-module.exports = { create, list, getById, updateById, deleteById };
+module.exports = { create, list, getById, updateById, deleteById, getBatches };
