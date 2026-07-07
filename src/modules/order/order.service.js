@@ -190,10 +190,7 @@ const updateById = async (id, data) => {
       const error = new Error(`Cannot cancel order. Current status is ${order.status}.`);
       error.statusCode = 400;
       throw error;
-    }
 
-
-    // Initiate refund if already paid
     if (order.paymentStatus === "PAID") {
       order.paymentStatus = "REFUND_PENDING";
     }
