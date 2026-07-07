@@ -144,6 +144,13 @@ describe("GET /api/v1/ratings", () => {
       expect(foodRating.userId.fullName).toBe("John Doe");
       expect(foodRating.foodId.name).toBe("Pizza");
       expect(foodRating.orderId.orderCode).toBe("ORD-1234");
+      
+      // Data Leakage Security Checks
+      expect(foodRating.userId.passwordHash).toBeUndefined();
+      expect(foodRating.userId.isActive).toBeUndefined();
+      expect(foodRating.userId.createdAt).toBeUndefined();
+      expect(foodRating.foodId.createdAt).toBeUndefined();
+      expect(foodRating.orderId.createdAt).toBeUndefined();
     });
 
     it("should filter by keyword (searching user fullName or comment)", async () => {
@@ -224,14 +231,37 @@ describe("GET /api/v1/ratings", () => {
       ratingId = rating._id.toString();
     });
 
-    it("should return 400 if ID is invalid format", async () => {
-      const res = await request(app)
-        .get("/api/v1/ratings/invalid-id")
-        .set("Authorization", `Bearer ${token}`);
+    describe("Authentication & Authorization", () => {
+      it("should return 401 if no token provided", async () => {
+        const res = await request(app).get(`/api/v1/ratings/${ratingId}`);
+        expect(res.status).toBe(401);
+      });
 
-      expect(res.status).toBe(400);
-      expect(res.body.message).toBe("Invalid Rating ID");
+      it("should return 403 for CUSTOMER role", async () => {
+        const auth = await createTestUser(ROLES.CUSTOMER);
+        const res = await request(app)
+          .get(`/api/v1/ratings/${ratingId}`)
+          .set("Authorization", `Bearer ${auth.token}`);
+        expect(res.status).toBe(403);
+      });
+
+      it("should return 200 for COUNTER_STAFF role", async () => {
+        const res = await request(app)
+          .get(`/api/v1/ratings/${ratingId}`)
+          .set("Authorization", `Bearer ${token}`);
+        expect(res.status).toBe(200);
+      });
     });
+
+    describe("Functionality", () => {
+      it("should return 400 if ID is invalid format", async () => {
+        const res = await request(app)
+          .get("/api/v1/ratings/invalid-id")
+          .set("Authorization", `Bearer ${token}`);
+
+        expect(res.status).toBe(400);
+        expect(res.body.message).toBe("Invalid Rating ID");
+      });
 
     it("should return 404 if ID is valid but not found", async () => {
       const fakeId = new mongoose.Types.ObjectId();
@@ -252,6 +282,12 @@ describe("GET /api/v1/ratings", () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.stars).toBe(3);
       expect(res.body.data.userId.fullName).toBe("Jane Doe");
+      
+      // Data Leakage Security Checks
+      expect(res.body.data.userId.passwordHash).toBeUndefined();
+      expect(res.body.data.userId.isActive).toBeUndefined();
+      expect(res.body.data.userId.createdAt).toBeUndefined();
+    });
     });
   });
 });

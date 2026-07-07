@@ -46,15 +46,28 @@ const getById = asyncHandler(async (req, res) => {
   // 4. Return success result (HTTP 200)
   return success(res, rating, "Get detail successfully");
 });
-const updateById = asyncHandler(async (req, res) =>
-  success(
-    res,
-    await service.updateById(req.params.id, req.body),
-    "Updated successfully",
-  ),
-);
-const deleteById = asyncHandler(async (req, res) =>
-  success(res, await service.deleteById(req.params.id), "Deleted successfully"),
-);
+const updateById = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return fail(res, "Invalid Rating ID", 400);
+  }
+  const updatedRating = await service.updateById(id, req.body);
+  if (!updatedRating) {
+    return fail(res, "Rating not found", 404);
+  }
+  return success(res, updatedRating, "Updated successfully");
+});
+
+const deleteById = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return fail(res, "Invalid Rating ID", 400);
+  }
+  const deletedRating = await service.deleteById(id);
+  if (!deletedRating) {
+    return fail(res, "Rating not found", 404);
+  }
+  return success(res, deletedRating, "Deleted successfully");
+});
 
 module.exports = { create, list, getById, updateById, deleteById };

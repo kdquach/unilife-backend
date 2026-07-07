@@ -94,6 +94,7 @@ const list = async (query = {}) => {
   }
 
   // 4. Create pipeline to count total records (For pagination metadata)
+  const totalPipeline = [...pipeline, { $count: "total" }];
 
   // 5. Append Sort, Pagination, and Sensitive Data Masking stages to the main pipeline
   pipeline.push(
@@ -107,6 +108,12 @@ const list = async (query = {}) => {
         "userId.createdAt": 0,
         "userId.updatedAt": 0,
         "userId.__v": 0,
+        "foodId.createdAt": 0,
+        "foodId.updatedAt": 0,
+        "foodId.__v": 0,
+        "orderId.createdAt": 0,
+        "orderId.updatedAt": 0,
+        "orderId.__v": 0,
       },
     },
   );
@@ -132,10 +139,12 @@ const list = async (query = {}) => {
  * @returns {Promise<Object|null>} Rating document or null
  */
 const getById = async (id) => {
-  return Rating.findById(id).populate(
-    "userId foodId orderId repliedBy",
-    "-passwordHash",
-  );
+  return Rating.findById(id).populate([
+    { path: "userId", select: "-passwordHash -isActive -createdAt -updatedAt -__v" },
+    { path: "foodId", select: "-createdAt -updatedAt -__v" },
+    { path: "orderId", select: "-createdAt -updatedAt -__v" },
+    { path: "repliedBy", select: "-passwordHash -isActive -createdAt -updatedAt -__v" },
+  ]);
 };
 
 const updateById = (id, data) =>
