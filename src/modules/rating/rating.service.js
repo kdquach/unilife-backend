@@ -1,5 +1,6 @@
 const Rating = require("./rating.model");
 const { getPagination } = require("../../utils/pagination.util");
+const { getVietnamDayRange } = require("../../utils/date.util");
 const mongoose = require("mongoose");
 
 /**
@@ -32,8 +33,36 @@ const list = async (query = {}) => {
   if (query.type) initialMatch.ratingType = query.type;
   if (query.stars) {
     const parsedStars = parseInt(query.stars, 10);
-    // Ignore filter if parsedStars is NaN (e.g., query.stars = 'abc') to avoid MongoDB logic errors
     if (!isNaN(parsedStars)) initialMatch.stars = parsedStars;
+  }
+
+  // Filter by hasReply
+  if (query.hasReply === "true") {
+    initialMatch.staffReply = { $ne: null };
+  } else if (query.hasReply === "false") {
+    initialMatch.staffReply = null;
+  }
+
+  // Filter by date range (using Vietnam Timezone)
+  if (query.startDate || query.endDate) {
+    const dateMatch = {};
+    if (query.startDate) {
+      const parsedStart = new Date(query.startDate);
+      if (!isNaN(parsedStart.getTime())) {
+        const { start } = getVietnamDayRange(parsedStart);
+        dateMatch.$gte = start;
+      }
+    }
+    if (query.endDate) {
+      const parsedEnd = new Date(query.endDate);
+      if (!isNaN(parsedEnd.getTime())) {
+        const { end } = getVietnamDayRange(parsedEnd);
+        dateMatch.$lte = end;
+      }
+    }
+    if (Object.keys(dateMatch).length > 0) {
+      initialMatch.createdAt = dateMatch;
+    }
   }
 
   const pipeline = [];

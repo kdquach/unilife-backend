@@ -205,6 +205,71 @@ describe("GET /api/v1/ratings", () => {
       expect(res.status).toBe(200);
       expect(res.body.data.items).toHaveLength(2); // Since stars=abc is NaN, the filter is ignored and returns all
     });
+
+    it("should filter by hasReply = true", async () => {
+      // First, add a reply to one of the ratings manually
+      const ratingToReply = await Rating.findOne({ ratingType: "FOOD" });
+      ratingToReply.staffReply = "Thank you!";
+      await ratingToReply.save();
+
+      const res = await request(app)
+        .get("/api/v1/ratings?hasReply=true")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.items).toHaveLength(1);
+      expect(res.body.data.items[0].ratingType).toBe("FOOD");
+    });
+
+    it("should filter by hasReply = false", async () => {
+      // Add a reply to one of the ratings
+      const ratingToReply = await Rating.findOne({ ratingType: "FOOD" });
+      ratingToReply.staffReply = "Thank you!";
+      await ratingToReply.save();
+
+      const res = await request(app)
+        .get("/api/v1/ratings?hasReply=false")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.items).toHaveLength(1);
+      expect(res.body.data.items[0].ratingType).toBe("SERVICE");
+    });
+
+    it("should filter by startDate and endDate", async () => {
+      // Both ratings are created recently (Date.now())
+      // Querying from yesterday to tomorrow should return 2
+      const yesterday = new Date(Date.now() - 86400000).toISOString();
+      const tomorrow = new Date(Date.now() + 86400000).toISOString();
+      
+      const res1 = await request(app)
+        .get(`/api/v1/ratings?startDate=${yesterday}&endDate=${tomorrow}`)
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res1.status).toBe(200);
+      expect(res1.body.data.items).toHaveLength(2);
+
+      // Querying for a date range in the future should return 0
+      const future1 = new Date(Date.now() + 86400000 * 2).toISOString();
+      const future2 = new Date(Date.now() + 86400000 * 3).toISOString();
+
+      const res2 = await request(app)
+        .get(`/api/v1/ratings?startDate=${future1}&endDate=${future2}`)
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res2.status).toBe(200);
+      expect(res2.body.data.items).toHaveLength(0);
+    });
+
+    it("should return 400 or ignore filter if startDate is invalid date string", async () => {
+      const res = await request(app)
+        .get(`/api/v1/ratings?startDate=invalid-date`)
+        .set("Authorization", `Bearer ${token}`);
+
+      // We expect it to either return 400 (Bad Request) or gracefully ignore and return 200, 
+      // but NOT 500 Internal Server Error (crash).
+      expect(res.status).not.toBe(500);
+    });
   });
 
     describe("GET /api/v1/ratings/:id", () => {
