@@ -5,57 +5,57 @@ const generateDescription = (action, req) => {
   
   switch (action) {
     case "LOGIN":
-      return `Đăng nhập vào hệ thống`;
+      return `Logged into the system`;
     case "LOGOUT":
-      return `Đăng xuất khỏi hệ thống`;
+      return `Logged out of the system`;
     case "CREATE_USER":
-      return `Tạo tài khoản người dùng mới: ${body.fullName || ""} (${body.email || ""}) với vai trò ${body.role || ""}`;
+      return `Created new user account: ${body.fullName || ""} (${body.email || ""}) with role ${body.role || ""}`;
     case "UPDATE_USER":
-      return `Cập nhật thông tin tài khoản người dùng: ${body.fullName || ""} (${body.email || ""})`;
+      return `Updated user account information: ${body.fullName || ""} (${body.email || ""})`;
     case "UPDATE_USER_STATUS":
-      return `Thay đổi trạng thái tài khoản của người dùng thành ${body.isActive ? "Hoạt động" : "Bị khóa"}`;
+      return `Changed user account status to ${body.isActive ? "Active" : "Locked"}`;
     case "UPDATE_USER_ROLE":
-      return `Cập nhật vai trò người dùng thành ${body.role || ""}`;
+      return `Updated user role to ${body.role || ""}`;
     case "CREATE_INGREDIENT_CATEGORY":
-      return `Tạo danh mục nguyên liệu mới: ${body.name || ""}`;
+      return `Created new ingredient category: ${body.name || ""}`;
     case "UPDATE_INGREDIENT_CATEGORY":
-      return `Cập nhật danh mục nguyên liệu: ${body.name || ""}`;
+      return `Updated ingredient category: ${body.name || ""}`;
     case "DELETE_INGREDIENT_CATEGORY":
-      return `Xóa danh mục nguyên liệu ID: ${req.params.id || ""}`;
+      return `Deleted ingredient category ID: ${req.params.id || ""}`;
     case "CREATE_INGREDIENT":
-      return `Tạo nguyên liệu mới: ${body.name || ""}`;
+      return `Created new ingredient: ${body.name || ""}`;
     case "UPDATE_INGREDIENT":
-      return `Cập nhật thông tin nguyên liệu: ${body.name || ""}`;
+      return `Updated ingredient information: ${body.name || ""}`;
     case "DELETE_INGREDIENT":
-      return `Xóa nguyên liệu ID: ${req.params.id || ""}`;
+      return `Deleted ingredient ID: ${req.params.id || ""}`;
     case "ADJUST_INGREDIENT_STOCK":
-      return `Điều chỉnh kho nguyên liệu: số lượng ${body.adjustment || 0} đơn vị, lý do: ${body.reason || "Không có lý do"}`;
+      return `Adjusted ingredient stock: amount ${body.adjustment || 0} units, reason: ${body.reason || "No reason provided"}`;
     case "IMPORT_INGREDIENT_STOCK":
-      return `Nhập kho nguyên liệu: số lượng ${body.quantity || 0} đơn vị từ nhà cung cấp ID ${body.supplierId || ""}`;
+      return `Imported ingredient stock: amount ${body.quantity || 0} units from supplier ID ${body.supplierId || ""}`;
     case "CREATE_FOOD_CATEGORY":
-      return `Tạo danh mục món ăn mới: ${body.name || ""}`;
+      return `Created new food category: ${body.name || ""}`;
     case "UPDATE_FOOD_CATEGORY":
-      return `Cập nhật danh mục món ăn: ${body.name || ""}`;
+      return `Updated food category: ${body.name || ""}`;
     case "DELETE_FOOD_CATEGORY":
-      return `Xóa danh mục món ăn ID: ${req.params.id || ""}`;
+      return `Deleted food category ID: ${req.params.id || ""}`;
     case "CREATE_SUPPLIER":
-      return `Thêm nhà cung cấp mới: ${body.name || ""}`;
+      return `Added new supplier: ${body.name || ""}`;
     case "UPDATE_SUPPLIER":
-      return `Cập nhật thông tin nhà cung cấp: ${body.name || ""}`;
+      return `Updated supplier information: ${body.name || ""}`;
     case "DELETE_SUPPLIER":
-      return `Xóa nhà cung cấp ID: ${req.params.id || ""}`;
+      return `Deleted supplier ID: ${req.params.id || ""}`;
     case "CREATE_MENU_SCHEDULE":
-      return `Tạo lịch trình menu mới cho ngày: ${body.date || ""}`;
+      return `Created new menu schedule for date: ${body.date || ""}`;
     case "UPDATE_MENU_SCHEDULE":
-      return `Cập nhật lịch trình menu ID: ${req.params.id || ""}`;
+      return `Updated menu schedule ID: ${req.params.id || ""}`;
     case "DELETE_MENU_SCHEDULE":
-      return `Xóa lịch trình menu ID: ${req.params.id || ""}`;
+      return `Deleted menu schedule ID: ${req.params.id || ""}`;
     case "CHECKOUT_ORDER":
-      return `Khách hàng đặt đơn hàng mới, tổng tiền: ${body.totalAmount || 0}đ`;
+      return `Customer placed new order, total amount: ${body.totalAmount || 0} VND`;
     case "CREATE_WALK_IN_ORDER":
-      return `Tạo đơn hàng trực tiếp tại quầy, tổng tiền: ${body.totalAmount || 0}đ`;
+      return `Created walk-in order, total amount: ${body.totalAmount || 0} VND`;
     case "UPDATE_ORDER":
-      return `Cập nhật trạng thái đơn hàng thành ${body.status || ""}`;
+      return `Updated order status to ${body.status || ""}`;
     default:
       return `${req.method} ${req.originalUrl}`;
   }
@@ -84,4 +84,4 @@ const writeActivityLog =
     next();
   };
 
-module.exports = { writeActivityLog };
+module.exports = { writeActivityLog, generateDescription };

@@ -33,145 +33,134 @@ const generateOrderCode = async () => {
 
 const create = async (data) => {
   const { items, paymentMethod, ...orderData } = data;
+  const session = await mongoose.startSession();
+  let createdOrder = null;
 
-  // Validate and deduct stock for each item first
-  if (items && Array.isArray(items)) {
-    for (const item of items) {
-      if (item.itemType === "MENU_ITEM" || !item.itemType) {
-        if (!item.menuScheduleItemId) {
-          const error = new Error(
-            "Menu schedule item ID is required for menu items.",
-          );
-          error.statusCode = 400;
-          throw error;
-        }
-        const menuScheduleItem = await MenuScheduleItem.findById(
-          item.menuScheduleItemId,
-        );
-        if (!menuScheduleItem) {
-          const error = new Error("Menu schedule item not found.");
-          error.statusCode = 404;
-          throw error;
-        }
-        if (menuScheduleItem.remainingCount < item.quantity) {
-          const error = new Error(
-            `Insufficient servings remaining for menu item.`,
-          );
-          error.statusCode = 400;
-          throw error;
-        }
-        // Deduct remainingCount and add to reservedCount
-        menuScheduleItem.remainingCount -= item.quantity;
-        menuScheduleItem.reservedCount += item.quantity;
-        await menuScheduleItem.save();
-      } else if (item.itemType === "REGULAR_FOOD") {
-        if (!item.foodId) {
-          const error = new Error(
-            "Food ID is required for regular food items.",
-          );
-          error.statusCode = 400;
-          throw error;
-        }
-        const food = await Food.findById(item.foodId);
-
-        if (!food) {
-          const error = new Error("Food item not found.");
-          error.statusCode = 404;
-          throw error;
-        }
-        if (food.stockQuantity !== null && food.stockQuantity < item.quantity) {
-          const error = new Error(
-            `Insufficient stock for food item ${food.name}.`,
-          );
-          error.statusCode = 400;
-          throw error;
-        }
-        // Deduct from stockQuantity
-        if (food.stockQuantity !== null) {
-          food.stockQuantity -= item.quantity;
-          await food.save();
+  try {
+    await session.withTransaction(async () => {
+      // Validate and deduct stock for each item first
+      if (items && Array.isArray(items)) {
+        for (const item of items) {
+          if (item.itemType === "MENU_ITEM" || !item.itemType) {
+            if (!item.menuScheduleItemId) {
+              const error = new Error("Menu schedule item ID is required for menu items.");
+              error.statusCode = 400;
+              throw error;
+            }
+            const menuScheduleItem = await MenuScheduleItem.findOneAndUpdate(
+              {
+                _id: item.menuScheduleItemId,
+                remainingCount: { $gte: item.quantity },
+              },
+              {
+                $inc: {
+                  remainingCount: -item.quantity,
+                  reservedCount: item.quantity,
+                },
+              },
+              { new: true, session }
+            );
+            
+            if (!menuScheduleItem) {
+              const error = new Error(`Insufficient servings remaining for menu item.`);
+              error.statusCode = 400;
+              throw error;
+            }
+          } else if (item.itemType === "REGULAR_FOOD") {
+            if (!item.foodId) {
+              const error = new Error("Food ID is required for regular food items.");
+              error.statusCode = 400;
+              throw error;
+            }
+            
+            const food = await Food.findById(item.foodId).session(session);
+            if (!food) {
+              const error = new Error("Food item not found.");
+              error.statusCode = 404;
+              throw error;
+            }
+            
+            if (food.stockQuantity !== null) {
+              const result = await Food.findOneAndUpdate(
+                {
+                  _id: food._id,
+                  stockQuantity: { $gte: item.quantity },
+                },
+                { $inc: { stockQuantity: -item.quantity } },
+                { new: true, session }
+              );
+              
+              if (!result) {
+                const error = new Error(`Insufficient stock for food item ${food.name}.`);
+                error.statusCode = 400;
+                throw error;
+              }
+            }
+          }
         }
       }
-    }
-  }
 
-  // Generate order code
-  const count = await Order.countDocuments();
-  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  const prefix = data.isWalkIn ? "UL-WI" : "UL-PO";
+      // Generate order code
+      const count = await Order.countDocuments().session(session);
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      const prefix = data.isWalkIn ? "UL-WI" : "UL-PO";
 
-  const orderCode = `${prefix}-${dateStr}-${String(count + 1).padStart(4, "0")}`;
+      const orderCode = `${prefix}-${dateStr}-${String(count + 1).padStart(4, "0")}`;
 
-  // Create the order document
-  const order = new Order({
-    ...orderData,
-    orderCode,
-    status: paymentMethod === "CASH" ? "PAID" : "PENDING_PAYMENT",
-    paymentMethod: paymentMethod || "SEPAY",
-    paymentStatus: paymentMethod === "CASH" ? "PAID" : "PENDING",
-    transferContent:
-      paymentMethod === "CASH" ? undefined : orderData.transferContent,
-    totalPrice: 0, // Will calculate below
-  });
+      // Create the order document
+      const [order] = await Order.create([{
+        ...orderData,
+        orderCode,
+        status: paymentMethod === "CASH" ? "PAID" : "PENDING_PAYMENT",
+        paymentMethod: paymentMethod || "SEPAY",
+        paymentStatus: paymentMethod === "CASH" ? "PAID" : "PENDING",
+        transferContent: paymentMethod === "CASH" ? undefined : orderData.transferContent,
+        totalPrice: 0,
+      }], { session });
 
-  await order.save();
+      let totalPrice = 0;
 
-  let totalPrice = 0;
-  const createdItems = [];
+      if (items && Array.isArray(items)) {
+        for (const item of items) {
+          let unitPrice = 0;
 
-  if (items && Array.isArray(items)) {
-    for (const item of items) {
-      let unitPrice = 0;
+          if (item.itemType === "REGULAR_FOOD") {
+            const food = await Food.findById(item.foodId).session(session);
+            unitPrice = food.price;
+          } else {
+            const menuScheduleItem = await MenuScheduleItem.findById(
+              item.menuScheduleItemId
+            ).populate("foodId").session(session);
+            unitPrice = menuScheduleItem.foodId.price;
+          }
 
-      if (item.itemType === "REGULAR_FOOD") {
-        const food = await Food.findById(item.foodId);
+          const subtotal = unitPrice * item.quantity;
+          totalPrice += subtotal;
 
-        if (!food) {
-          const error = new Error("Food item not found.");
-          error.statusCode = 404;
-          throw error;
+          await OrderItem.create([{
+            orderId: order._id,
+            itemType: item.itemType || "MENU_ITEM",
+            menuScheduleItemId: item.menuScheduleItemId || undefined,
+            foodId: item.foodId || undefined,
+            quantity: item.quantity,
+            unitPrice,
+            subtotal,
+          }], { session });
         }
-
-        unitPrice = food.price;
-      } else {
-        const menuScheduleItem = await MenuScheduleItem.findById(
-          item.menuScheduleItemId,
-        ).populate("foodId");
-
-        if (!menuScheduleItem) {
-          const error = new Error("Menu schedule item not found.");
-          error.statusCode = 404;
-          throw error;
-        }
-
-        unitPrice = menuScheduleItem.foodId.price;
       }
 
-      const subtotal = unitPrice * item.quantity;
-
-      totalPrice += subtotal;
-
-      const orderItem = new OrderItem({
-        orderId: order._id,
-        itemType: item.itemType || "MENU_ITEM",
-        menuScheduleItemId: item.menuScheduleItemId || undefined,
-        foodId: item.foodId || undefined,
-        quantity: item.quantity,
-        unitPrice,
-        subtotal,
-      });
-
-      await orderItem.save();
-      createdItems.push(orderItem);
-    }
+      // Update order's total price
+      order.totalPrice = totalPrice;
+      await order.save({ session });
+      
+      createdOrder = order;
+    });
+  } finally {
+    await session.endSession();
   }
-
-  // Update order's total price
-  order.totalPrice = totalPrice;
-  await order.save();
 
   // Retrieve populated order
-  return getById(order._id);
+  return getById(createdOrder._id);
 };
 
 /**
