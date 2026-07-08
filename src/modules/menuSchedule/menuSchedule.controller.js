@@ -57,7 +57,7 @@ const getById = asyncHandler(async (req, res) =>
 const updateById = asyncHandler(async (req, res) =>
   success(
     res,
-    await service.updateById(req.params.id, req.body),
+    await service.updateById(req.params.id, req.body, req.user),
     "Updated successfully",
   ),
 );
