@@ -183,3 +183,51 @@ describe("Food Service - Kitchen Staff Foods", () => {
     expect(result.kindOptions).toEqual(["alwaysAvailable", "menuItem"]);
   });
 });
+
+describe("Food Service - Manager Foods", () => {
+  it("creates food with normalized data and populated category", async () => {
+    const category = await FoodCategory.create({ name: "Rice" });
+
+    const result = await foodService.create({
+      categoryId: category._id.toString(),
+      name: "  Grilled Chicken Rice  ",
+      description: "  Lunch set  ",
+      imageUrl: "  /uploads/foods/chicken-rice.jpg  ",
+      price: "45000",
+      stockQuantity: "20",
+      isMenuItem: "false",
+      isActive: "true",
+    });
+
+    expect(result.name).toBe("Grilled Chicken Rice");
+    expect(result.description).toBe("Lunch set");
+    expect(result.imageUrl).toBe("/uploads/foods/chicken-rice.jpg");
+    expect(result.price).toBe(45000);
+    expect(result.stockQuantity).toBe(20);
+    expect(result.isMenuItem).toBe(false);
+    expect(result.isActive).toBe(true);
+    expect(result.categoryId.name).toBe("Rice");
+  });
+
+  it("rejects duplicate food names when creating food", async () => {
+    await Food.create({ name: "Milk Tea", price: 22000 });
+
+    await expect(
+      foodService.create({ name: " milk tea ", price: 25000 }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: "Food name already exists",
+    });
+  });
+
+  it("rejects creating food with missing category", async () => {
+    const categoryId = new mongoose.Types.ObjectId().toString();
+
+    await expect(
+      foodService.create({ categoryId, name: "Beef Noodle", price: 35000 }),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Food category not found",
+    });
+  });
+});

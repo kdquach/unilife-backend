@@ -1,9 +1,8 @@
 const mongoose = require("mongoose");
 require("../foodCategory/foodCategory.model");
 const Food = require("./food.model");
+const FoodCategory = require("../foodCategory/foodCategory.model");
 const { getPagination } = require("../../utils/pagination.util");
-
-const create = (data) => Food.create(data);
 
 const escapeRegExp = (value = "") =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -23,6 +22,159 @@ const getObjectIds = (value) => {
   return values
     .map((item) => item.trim())
     .filter((item) => mongoose.Types.ObjectId.isValid(item));
+};
+
+const pickFoodFields = (data = {}) => {
+  const payload = {};
+  [
+    "categoryId",
+    "name",
+    "description",
+    "imageUrl",
+    "price",
+    "isMenuItem",
+    "stockQuantity",
+    "isActive",
+  ].forEach((field) => {
+    if (data[field] !== undefined) payload[field] = data[field];
+  });
+
+  return payload;
+};
+
+const toNumber = (value) => {
+  if (value === null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
+};
+
+const normalizePayload = (data = {}, { partial = false } = {}) => {
+  const payload = pickFoodFields(data);
+
+  if (!partial || payload.name !== undefined) {
+    if (typeof payload.name !== "string" || payload.name.trim() === "") {
+      const err = new Error("Food name is required");
+      err.statusCode = 400;
+      throw err;
+    }
+    payload.name = payload.name.trim();
+  }
+
+  ["description", "imageUrl"].forEach((field) => {
+    if (payload[field] === null) payload[field] = "";
+    if (payload[field] !== undefined) {
+      if (typeof payload[field] !== "string") {
+        const err = new Error(`Food ${field} must be a string`);
+        err.statusCode = 400;
+        throw err;
+      }
+      payload[field] = payload[field].trim();
+    }
+  });
+
+  if (payload.categoryId === "" || payload.categoryId === null) {
+    payload.categoryId = null;
+  }
+  if (
+    payload.categoryId !== undefined &&
+    payload.categoryId !== null &&
+    !mongoose.Types.ObjectId.isValid(payload.categoryId)
+  ) {
+    const err = new Error("Invalid food category id");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (payload.price !== undefined) {
+    const price = toNumber(payload.price);
+    if (price === undefined || price < 0) {
+      const err = new Error("Food price must be a non-negative number");
+      err.statusCode = 400;
+      throw err;
+    }
+    payload.price = price;
+  }
+
+  if (payload.stockQuantity !== undefined) {
+    const stockQuantity = toNumber(payload.stockQuantity);
+    if (
+      stockQuantity !== null &&
+      (stockQuantity === undefined || stockQuantity < 0)
+    ) {
+      const err = new Error(
+        "Food stock quantity must be a non-negative number",
+      );
+      err.statusCode = 400;
+      throw err;
+    }
+    payload.stockQuantity = stockQuantity;
+  }
+
+  ["isMenuItem", "isActive"].forEach((field) => {
+    if (payload[field] !== undefined) {
+      const parsed = toBoolean(payload[field]);
+      if (parsed === undefined) {
+        const err = new Error(`Food ${field} must be a boolean`);
+        err.statusCode = 400;
+        throw err;
+      }
+      payload[field] = parsed;
+    }
+  });
+
+  return payload;
+};
+
+const ensureUniqueName = async (name, exceptId = null) => {
+  if (!name) return;
+  const existed = await Food.findOne({
+    name: new RegExp(`^${escapeRegExp(name)}$`, "i"),
+    ...(exceptId ? { _id: { $ne: exceptId } } : {}),
+  });
+
+  if (existed) {
+    const err = new Error("Food name already exists");
+    err.statusCode = 409;
+    throw err;
+  }
+};
+
+const ensureCategoryExists = async (categoryId) => {
+  if (categoryId === undefined || categoryId === null) return;
+  const category = await FoodCategory.findById(categoryId);
+  if (!category) {
+    const err = new Error("Food category not found");
+    err.statusCode = 404;
+    throw err;
+  }
+};
+
+const getExistingById = async (id) => {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    const err = new Error("Invalid food id");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const food = await Food.findById(id);
+  if (!food) {
+    const err = new Error("Food not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  return food;
+};
+
+const create = async (data) => {
+  const payload = normalizePayload(data);
+  await Promise.all([
+    ensureUniqueName(payload.name),
+    ensureCategoryExists(payload.categoryId),
+  ]);
+
+  const food = await Food.create(payload);
+  return Food.findById(food._id).populate("categoryId", "name isActive");
 };
 
 const buildFilter = (query = {}, options = {}) => {
