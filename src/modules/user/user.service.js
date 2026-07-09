@@ -13,6 +13,10 @@ const STAFF_ROLES = [
   ROLES.COUNTER_STAFF,
   ROLES.KITCHEN_STAFF,
 ];
+const MANAGER_ASSIGNABLE_STAFF_ROLES = [
+  ROLES.COUNTER_STAFF,
+  ROLES.KITCHEN_STAFF,
+];
 
 const getProfile = (userId) => User.findById(userId).select("-passwordHash");
 
@@ -169,6 +173,55 @@ const getStaffById = async (id) => {
   return staff;
 };
 
+const changeStaffRole = async (actor, id, role) => {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    const err = new Error("Invalid staff id");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!STAFF_ROLES.includes(role)) {
+    const err = new Error("Invalid staff role");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (actor?._id?.toString() === id.toString()) {
+    const err = new Error("Cannot change your own role");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const staff = await User.findOne({
+    _id: id,
+    role: { $in: STAFF_ROLES },
+  });
+
+  if (!staff) {
+    const err = new Error("Staff not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (actor?.role === ROLES.MANAGER) {
+    const canManageTarget = MANAGER_ASSIGNABLE_STAFF_ROLES.includes(staff.role);
+    const canAssignRole = MANAGER_ASSIGNABLE_STAFF_ROLES.includes(role);
+
+    if (!canManageTarget || !canAssignRole) {
+      const err = new Error("Managers can only manage counter or kitchen staff");
+      err.statusCode = 403;
+      throw err;
+    }
+  }
+
+  staff.role = role;
+  await staff.save();
+
+  const safeStaff = staff.toObject({ virtuals: true });
+  delete safeStaff.passwordHash;
+  return safeStaff;
+};
+
 const updateUserStatus = (id, isActive) =>
   User.findByIdAndUpdate(
     id,
@@ -254,6 +307,7 @@ module.exports = {
   listUsers,
   listStaffs,
   getStaffById,
+  changeStaffRole,
   updateUserStatus,
   updateUserRole,
   getUserById,

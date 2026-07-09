@@ -27,6 +27,12 @@ router.get(
   authorize(ROLES.ADMIN, ROLES.MANAGER),
   controller.getStaffById,
 );
+router.patch(
+  "/staffs/:id/role",
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
+  writeActivityLog("CHANGE_STAFF_ROLE", "User"),
+  controller.changeStaffRole,
+);
 router.get(
   "/:id",
   authorize(ROLES.ADMIN),

@@ -59,6 +59,13 @@ const getStaffById = asyncHandler(async (req, res) =>
     "Get staff detail successfully",
   ),
 );
+const changeStaffRole = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.changeStaffRole(req.user, req.params.id, req.body.role),
+    "Staff role updated successfully",
+  ),
+);
 const updateUserStatus = asyncHandler(async (req, res) =>
   success(
     res,
@@ -105,6 +112,7 @@ module.exports = {
   listUsers,
   listStaffs,
   getStaffById,
+  changeStaffRole,
   updateUserStatus,
   updateUserRole,
   getUserById,

@@ -90,4 +90,89 @@ describe("User Service - Manage Staff", () => {
       message: "Staff not found",
     });
   });
+
+  it("allows admin to change a staff role", async () => {
+    const admin = await createUser({
+      fullName: "Admin",
+      email: "admin@unilife.local",
+      role: ROLES.ADMIN,
+    });
+    const staff = await createUser({
+      fullName: "Kitchen Staff",
+      email: "kitchen@unilife.local",
+      role: ROLES.KITCHEN_STAFF,
+    });
+
+    const result = await userService.changeStaffRole(
+      admin,
+      staff._id.toString(),
+      ROLES.COUNTER_STAFF,
+    );
+
+    expect(result.role).toBe(ROLES.COUNTER_STAFF);
+    expect(result.passwordHash).toBeUndefined();
+  });
+
+  it("prevents manager from assigning manager or admin roles", async () => {
+    const manager = await createUser({
+      fullName: "Manager",
+      email: "manager@unilife.local",
+      role: ROLES.MANAGER,
+    });
+    const staff = await createUser({
+      fullName: "Counter Staff",
+      email: "counter@unilife.local",
+      role: ROLES.COUNTER_STAFF,
+    });
+
+    await expect(
+      userService.changeStaffRole(
+        manager,
+        staff._id.toString(),
+        ROLES.MANAGER,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message: "Managers can only manage counter or kitchen staff",
+    });
+  });
+
+  it("prevents changing role for customers through staff endpoint", async () => {
+    const admin = await createUser({
+      fullName: "Admin",
+      email: "admin@unilife.local",
+      role: ROLES.ADMIN,
+    });
+    const customer = await createUser({
+      fullName: "Customer",
+      email: "customer@unilife.local",
+      role: ROLES.CUSTOMER,
+    });
+
+    await expect(
+      userService.changeStaffRole(
+        admin,
+        customer._id.toString(),
+        ROLES.KITCHEN_STAFF,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Staff not found",
+    });
+  });
+
+  it("prevents users from changing their own staff role", async () => {
+    const admin = await createUser({
+      fullName: "Admin",
+      email: "admin@unilife.local",
+      role: ROLES.ADMIN,
+    });
+
+    await expect(
+      userService.changeStaffRole(admin, admin._id.toString(), ROLES.MANAGER),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Cannot change your own role",
+    });
+  });
 });
