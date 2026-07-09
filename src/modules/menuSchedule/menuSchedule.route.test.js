@@ -48,6 +48,7 @@ describe("GET /api/v1/menu-schedules/staff", () => {
   describe("Authentication & Authorization Edge Cases", () => {
     it("should return 401 if no authorization header is provided", async () => {
       const res = await request(app).get("/api/v1/menu-schedules/staff");
+      if (res.status === 500) console.log(res.text);
       expect(res.status).toBe(401);
       expect(res.body.success).toBe(false);
       expect(res.body.message).toMatch(/token/i);

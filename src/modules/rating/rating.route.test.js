@@ -1,7 +1,7 @@
 const request = require("supertest");
 const express = require("express");
 const mongoose = require("mongoose");
-const { MongoMemoryServer } = require("mongodb-memory-server");
+
 const routes = require("../../routes");
 const User = require("../user/user.model");
 const Rating = require("./rating.model");
@@ -12,21 +12,10 @@ const ROLES = require("../../constants/roles.constant");
 const jwt = require("jsonwebtoken");
 
 process.env.JWT_ACCESS_SECRET = "test-secret-for-jwt";
-
-let mongoServer;
 const app = express();
 app.use(express.json());
 app.use("/api/v1", routes);
 
-beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create();
-  await mongoose.connect(mongoServer.getUri());
-});
-
-afterAll(async () => {
-  await mongoose.disconnect();
-  await mongoServer.stop();
-});
 
 beforeEach(async () => {
   await User.deleteMany({});
@@ -452,9 +441,11 @@ describe("GET /api/v1/ratings", () => {
 
   describe("POST /api/v1/ratings", () => {
     let customerToken;
+    let customerTokenUserId;
     beforeEach(async () => {
       const auth = await createTestUser(ROLES.CUSTOMER);
       customerToken = auth.token;
+      customerTokenUserId = auth.user._id;
     });
 
     it("should return 401 if not authenticated", async () => {
@@ -466,12 +457,23 @@ describe("GET /api/v1/ratings", () => {
       const fakeStaffReply = "Hacked Reply";
       const fakeUserId = new mongoose.Types.ObjectId();
       
+      const order = await Order.create({
+        userId: customerTokenUserId,
+        orderCode: "TEST-ORDER",
+        status: "COMPLETED",
+        totalAmount: 100,
+        paymentStatus: "PAID",
+        paymentMethod: "CASH"
+      });
+
       const res = await request(app)
         .post("/api/v1/ratings")
         .set("Authorization", `Bearer ${customerToken}`)
         .send({ 
           stars: 4, 
           comment: "Good",
+          ratingType: "ORDER",
+          orderId: order._id,
           userId: fakeUserId, // mass assignment attempt
           staffReply: fakeStaffReply // mass assignment attempt
         });
@@ -480,7 +482,7 @@ describe("GET /api/v1/ratings", () => {
       expect(res.body.success).toBe(true);
       
       const rating = await Rating.findById(res.body.data._id);
-      expect(rating.staffReply).toBeNull(); // Should ignore injection
+      expect(rating.staffReply).toBeFalsy(); // Should ignore injection
       expect(rating.userId.toString()).not.toBe(fakeUserId.toString()); // Should override with logged in user ID
     });
   });

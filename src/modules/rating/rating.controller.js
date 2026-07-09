@@ -2,7 +2,6 @@ const asyncHandler = require("../../utils/asyncHandler");
 const { success, fail } = require("../../utils/apiResponse");
 const service = require("./rating.service");
 const mongoose = require("mongoose");
-
 /**
  * @desc    Create a new rating
  * @route   POST /api/v1/ratings
@@ -10,16 +9,9 @@ const mongoose = require("mongoose");
  */
 const create = asyncHandler(async (req, res) => {
   // Prevent mass assignment
-  const { staffReply, repliedBy, repliedAt, ...ratingData } = req.body;
+  const { staffReply, repliedBy, repliedAt, userId, ...ratingData } = req.body;
   
-  // Force the userId to be the authenticated customer
-  ratingData.userId = req.user._id;
-
-  if (ratingData.stars && (ratingData.stars < 1 || ratingData.stars > 5)) {
-    return fail(res, "Stars must be between 1 and 5", 400);
-  }
-
-  const newRating = await service.create(ratingData);
+  const newRating = await service.create(req.user._id, ratingData);
   return success(res, newRating, "Created successfully", 201);
 });
 
@@ -133,18 +125,6 @@ const reply = asyncHandler(async (req, res) => {
   return success(res, updatedRating, "Replied successfully");
 });
 
-module.exports = { create, list, getById, updateById, deleteById, reply };
-const create = asyncHandler(async (req, res) =>
-  success(
-    res,
-    await service.create(req.user._id, req.body),
-    "Created successfully",
-    201,
-  ),
-);
-const list = asyncHandler(async (req, res) =>
-  success(res, await service.list(req.query), "Get list successfully"),
-);
 const listMine = asyncHandler(async (req, res) =>
   success(
     res,
@@ -152,39 +132,12 @@ const listMine = asyncHandler(async (req, res) =>
     "Get my ratings successfully",
   ),
 );
-const getById = asyncHandler(async (req, res) => {
-  const item = await service.getById(req.params.id);
-  if (!item) return fail(res, "Rating not found", 404);
 
-  return success(res, item, "Get detail successfully");
-});
 const getMineById = asyncHandler(async (req, res) => {
   const item = await service.getMineById(req.user._id, req.params.id);
   if (!item) return fail(res, "Rating not found", 404);
 
   return success(res, item, "Get my rating detail successfully");
 });
-const updateById = asyncHandler(async (req, res) =>
-  success(
-    res,
-    await service.updateMineById(req.user._id, req.params.id, req.body),
-    "Updated successfully",
-  ),
-);
-const deleteById = asyncHandler(async (req, res) =>
-  success(
-    res,
-    await service.deleteMineById(req.user._id, req.params.id),
-    "Deleted successfully",
-  ),
-);
 
-module.exports = {
-  create,
-  list,
-  listMine,
-  getById,
-  getMineById,
-  updateById,
-  deleteById,
-};
+module.exports = { create, list, listMine, getById, getMineById, updateById, deleteById, reply };

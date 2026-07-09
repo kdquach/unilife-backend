@@ -9,14 +9,6 @@ const OrderItem = require("../orderItem/orderItem.model");
 const MenuScheduleItem = require("../menuScheduleItem/menuScheduleItem.model");
 const { getPagination } = require("../../utils/pagination.util");
 const { getVietnamDayRange } = require("../../utils/date.util");
-const mongoose = require("mongoose");
-
-/**
- * Create a new rating
- * @param {Object} data The rating data to create
- * @returns {Promise<Object>} The newly created rating document
- */
-const create = (data) => Rating.create(data);
 const createError = (message, statusCode = 400) => {
   const error = new Error(message);
   error.statusCode = statusCode;
@@ -237,13 +229,7 @@ const create = async (userId, data = {}) => {
   return populateRating(Rating.findById(rating._id));
 };
 
-/**
- * Utility function: Escape special characters in regex
- * Prevents ReDoS (Regular Expression Denial of Service) when users input special characters
- * @param {String} string String to escape
- * @returns {String} Safe string to use inside new RegExp()
- */
-const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 
 /**
  * Retrieve a list of ratings with pagination, search, and filtering.
@@ -378,14 +364,9 @@ const list = async (query = {}) => {
   const [items, totalResult] = await Promise.all([
     Rating.aggregate(pipeline),
     Rating.aggregate(totalPipeline),
-  const filter = await buildFilter(query);
-
-  const [items, total] = await Promise.all([
-    populateRating(
-      Rating.find(filter).skip(skip).limit(limit).sort({ createdAt: -1 }),
-    ),
-    Rating.countDocuments(filter),
   ]);
+
+  const total = totalResult.length > 0 ? totalResult[0].total : 0;
 
   return {
     items,
@@ -403,8 +384,6 @@ const listMine = async (userId, query = {}) => {
     ),
     Rating.countDocuments(filter),
   ]);
-
-  const total = totalResult.length > 0 ? totalResult[0].total : 0;
 
   return {
     items,
@@ -431,12 +410,6 @@ const getById = async (id) => {
       select: "-passwordHash -isActive -createdAt -updatedAt -__v",
     },
   ]);
-const getById = (id) => {
-  if (!mongoose.Types.ObjectId.isValid(id)) {
-    throw createError("Invalid rating id");
-  }
-
-  return populateRating(Rating.findById(id));
 };
 
 const getMineById = (userId, id) => {
@@ -497,7 +470,6 @@ const replyRating = (id, staffReply, repliedBy) =>
     { new: true, runValidators: true },
   );
 
-module.exports = { create, list, getById, updateById, deleteById, replyRating };
 module.exports = {
   create,
   list,
@@ -508,4 +480,5 @@ module.exports = {
   deleteMineById,
   updateById,
   deleteById,
+  replyRating,
 };

@@ -13,16 +13,31 @@ const router = express.Router();
 router.get("/today", controller.getToday);
 router.get("/", controller.list);
 
+// Staff routes
+router.get(
+  "/staff",
+  authenticate,
+  authorize(ROLES.KITCHEN_STAFF, ROLES.MANAGER, ROLES.ADMIN),
+  controller.listMenuScheduleForStaff
+);
+
+router.get(
+  "/staff/:id",
+  authenticate,
+  authorize(ROLES.KITCHEN_STAFF, ROLES.MANAGER, ROLES.ADMIN),
+  controller.getMenuScheduleByIdForStaff
+);
+
 router.get("/:id", controller.getById);
 
 const rateLimit = require("express-rate-limit");
 
 const createScheduleLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 5, // Limit each IP to 5 create requests per `window` (here, per minute)
+  windowMs: 60 * 1000,
+  max: 5,
   message: { success: false, message: "Too many menu schedules created from this IP, please try again after a minute" },
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  standardHeaders: true,
+  legacyHeaders: false,
   skip: (req) => process.env.NODE_ENV === "test" && req.headers["x-test-rate-limit"] !== "true",
 });
 

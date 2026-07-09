@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const { MongoMemoryServer } = require("mongodb-memory-server");
+
 const userService = require("./user.service");
 const User = require("./user.model");
 const ROLES = require("../../constants/roles.constant");
@@ -16,15 +16,7 @@ const createUser = (data) =>
     isActive: data.isActive !== undefined ? data.isActive : true,
   });
 
-beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create();
-  await mongoose.connect(mongoServer.getUri());
-});
 
-afterAll(async () => {
-  await mongoose.disconnect();
-  await mongoServer.stop();
-});
 
 beforeEach(async () => {
   await User.deleteMany({});
