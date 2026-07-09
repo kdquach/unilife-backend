@@ -55,9 +55,16 @@ const create = async (data, user) => {
 const list = async (query = {}) => {
   const { page, limit, skip } = getPagination(query);
   const filter = {};
+  const allowedPublicStatuses = ["PUBLISHED", "COMPLETED"];
   if (query.status) {
-    const statuses = String(query.status).split(",");
-    filter.status = statuses.length > 1 ? { $in: statuses } : statuses[0];
+    const statuses = String(query.status).split(",").filter(s => allowedPublicStatuses.includes(s));
+    if (statuses.length > 0) {
+      filter.status = statuses.length > 1 ? { $in: statuses } : statuses[0];
+    } else {
+      filter.status = "PUBLISHED";
+    }
+  } else {
+    filter.status = "PUBLISHED";
   }
 
   if (query.date) {
@@ -148,7 +155,15 @@ const getToday = async () => {
   }).populate(getPopulateItemsOption());
 };
 
-const getById = (id) => MenuSchedule.findById(id).populate(getPopulateItemsOption());
+const getById = async (id) => {
+  const schedule = await MenuSchedule.findById(id).populate(getPopulateItemsOption());
+  if (!schedule || !["PUBLISHED", "COMPLETED"].includes(schedule.status)) {
+    const error = new Error("Menu schedule not found");
+    error.statusCode = 404;
+    throw error;
+  }
+  return schedule;
+};
 
 const updateById = async (id, data, user) => {
   // 1. Mass Assignment Prevention (Whitelist)
