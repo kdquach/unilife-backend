@@ -66,7 +66,7 @@ const verifyWebhookAuth = (req) => {
   const timestamp = req.headers["x-sepay-timestamp"];
 
   if (signature && timestamp && req.body && config.webhookSecret) {
-    // Thuật toán thực tế của SePay: HMAC-SHA256(Secret, timestamp + "." + JSON.stringify(body))
+    // SePay's actual algorithm: HMAC-SHA256(Secret, timestamp + "." + JSON.stringify(body))
     const payloadStr = JSON.stringify(req.body);
     const dataToHash = timestamp + "." + payloadStr;
 
@@ -167,7 +167,7 @@ const processWebhook = async (webhookData) => {
     return { success: true, message: "Order already paid" };
   }
 
-  // Tiền vào tài khoản nhưng đơn hàng đã bị hủy trước đó -> Khoản tiền treo cần hoàn trả
+  // Payment received but order was cancelled earlier -> Suspended amount needs refund
   if (order.status === "CANCELLED" || order.paymentStatus === "EXPIRED") {
     const lateMsg = `CRITICAL LIABILITY: Payment received for cancelled order. REFUND REQUIRED. (Received: ${transferAmount}, Ref: ${referenceCode || String(transactionId || "")})`;
     await Order.updateOne(
@@ -201,7 +201,7 @@ const processWebhook = async (webhookData) => {
   }
 
   // ATOMIC UPDATE to avoid race condition with expirePendingOrders
-  // Vô hiệu hóa QR Code ngay sau khi thanh toán thành công để frontend ẩn đi
+  // Disable QR Code immediately after successful payment so frontend hides it
   const updatedOrder = await Order.findOneAndUpdate(
     {
       _id: order._id,
@@ -273,7 +273,7 @@ const expirePendingOrders = async () => {
 
   for (const order of expiredOrders) {
     // Lock and mark EXPIRED atomically to avoid race condition with incoming webhook
-    // Xóa QR code để người dùng không chuyển tiền nhầm nữa
+    // Delete QR code to prevent users from accidentally transferring money again
     const updated = await Order.findOneAndUpdate(
       {
         _id: order._id,

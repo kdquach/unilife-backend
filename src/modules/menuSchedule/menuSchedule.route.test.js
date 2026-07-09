@@ -1,7 +1,7 @@
 const request = require("supertest");
 const express = require("express");
 const mongoose = require("mongoose");
-const { MongoMemoryServer } = require("mongodb-memory-server");
+
 const routes = require("../../routes");
 const User = require("../user/user.model");
 const MenuSchedule = require("./menuSchedule.model");
@@ -13,20 +13,14 @@ const jwt = require("jsonwebtoken");
 
 process.env.JWT_ACCESS_SECRET = "test-secret-for-jwt";
 
-let mongoServer;
+
 const app = express();
 app.use(express.json());
 app.use("/api/v1", routes);
 
-beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create();
-  await mongoose.connect(mongoServer.getUri());
-});
 
-afterAll(async () => {
-  await mongoose.disconnect();
-  await mongoServer.stop();
-});
+
+
 
 beforeEach(async () => {
   // Quality Standard: Test isolation verified (no shared state) & Test data cleaned up

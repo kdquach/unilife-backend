@@ -1,25 +1,18 @@
 const mongoose = require("mongoose");
-const { MongoMemoryServer } = require("mongodb-memory-server");
+
 const paymentService = require("./payment.service");
 const Order = require("../order/order.model");
 const OrderItem = require("../orderItem/orderItem.model");
 const Queue = require("../queue/queue.model");
 const Food = require("../food/food.model");
 
-let mongoServer;
+
 
 beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create();
-  const uri = mongoServer.getUri();
-  await mongoose.connect(uri);
-
   process.env.SEPAY_API_KEY = "TEST_API_KEY";
 });
 
-afterAll(async () => {
-  await mongoose.disconnect();
-  await mongoServer.stop();
-});
+
 
 beforeEach(async () => {
   await Order.deleteMany({});

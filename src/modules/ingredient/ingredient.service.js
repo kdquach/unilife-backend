@@ -710,7 +710,7 @@ const syncBatchStock = async (ingredient, adjustment, data, session) => {
   return { batchId: null, affectedBatches: [] };
 };
 
-const adjustStock = async (id, data = {}, user = null) => {
+const adjustStock = async (id, data = {}, user = null, extSession = null) => {
   if (!mongoose.Types.ObjectId.isValid(id)) {
     throw createError("Invalid ingredient id");
   }
@@ -718,61 +718,69 @@ const adjustStock = async (id, data = {}, user = null) => {
   assertAllowedStockAdjustmentFields(data);
 
   const referenceId = getOptionalObjectId(data.referenceId, "referenceId");
-  const session = await mongoose.startSession();
+  const session = extSession || await mongoose.startSession();
   let transactionId = null;
 
-  try {
-    await session.withTransaction(async () => {
-      const ingredient = await Ingredient.findById(id).session(session);
-      if (!ingredient) throw createError("Ingredient not found", 404);
-      if (!ingredient.isActive) {
-        throw createError("Cannot adjust stock for inactive ingredient");
-      }
+  const executeLogic = async (sess) => {
+    const ingredient = await Ingredient.findById(id).session(sess);
+    if (!ingredient) throw createError("Ingredient not found", 404);
+    if (!ingredient.isActive) {
+      throw createError("Cannot adjust stock for inactive ingredient");
+    }
 
-      const adjustment = buildStockAdjustment(ingredient, data);
-      const batchResult = await syncBatchStock(
-        ingredient,
-        adjustment,
-        data,
-        session,
-      );
+    const adjustment = buildStockAdjustment(ingredient, data);
+    const batchResult = await syncBatchStock(
+      ingredient,
+      adjustment,
+      data,
+      sess,
+    );
 
-      ingredient.currentStock = adjustment.stockAfter;
-      await ingredient.save({ session });
+    ingredient.currentStock = adjustment.stockAfter;
+    await ingredient.save({ session: sess });
 
-      const [transaction] = await IngredientTransaction.create(
-        [
-          {
-            ingredientId: ingredient._id,
-            batchId: batchResult.batchId,
-            transactionType: adjustment.transactionType,
-            quantity: adjustment.quantity,
-            stockBefore: adjustment.stockBefore,
-            stockAfter: adjustment.stockAfter,
-            unit: ingredient.unit || null,
-            reason: adjustment.reason,
-            adjustedBy: user?._id || null,
-            referenceType: data.referenceType || "STOCK_ADJUSTMENT",
-            referenceId,
-            metadata: {
-              adjustmentType: adjustment.adjustmentType,
-              source: "MANUAL_STOCK_ADJUSTMENT",
-              affectedBatches: batchResult.affectedBatches,
-            },
+    const [transaction] = await IngredientTransaction.create(
+      [
+        {
+          ingredientId: ingredient._id,
+          batchId: batchResult.batchId,
+          transactionType: adjustment.transactionType,
+          quantity: adjustment.quantity,
+          stockBefore: adjustment.stockBefore,
+          stockAfter: adjustment.stockAfter,
+          unit: ingredient.unit || null,
+          reason: adjustment.reason,
+          adjustedBy: user?._id || null,
+          referenceType: data.referenceType || "STOCK_ADJUSTMENT",
+          referenceId,
+          metadata: {
+            adjustmentType: adjustment.adjustmentType,
+            source: "MANUAL_STOCK_ADJUSTMENT",
+            affectedBatches: batchResult.affectedBatches,
           },
-        ],
-        { session },
-      );
+        },
+      ],
+      { session: sess },
+    );
 
-      transactionId = transaction._id;
-    });
+    transactionId = transaction._id;
+  };
+
+  try {
+    if (extSession) {
+      await executeLogic(extSession);
+    } else {
+      await session.withTransaction(async () => {
+        await executeLogic(session);
+      });
+    }
   } finally {
-    await session.endSession();
+    if (!extSession) await session.endSession();
   }
 
   const [ingredient, transaction] = await Promise.all([
-    Ingredient.findById(id).populate("categoryId", "name description"),
-    IngredientTransaction.findById(transactionId)
+    Ingredient.findById(id).session(extSession || null).populate("categoryId", "name description"),
+    IngredientTransaction.findById(transactionId).session(extSession || null)
       .populate("ingredientId", "name unit currentStock")
       .populate("batchId", "quantity remainingQuantity expiryDate")
       .populate("adjustedBy", "fullName email role"),
