@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const User = require("./user.model");
 const { getPagination } = require("../../utils/pagination.util");
 const sharp = require("sharp");
@@ -147,6 +148,27 @@ const listStaffs = async (query = {}) => {
   };
 };
 
+const getStaffById = async (id) => {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    const err = new Error("Invalid staff id");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const staff = await User.findOne({
+    _id: id,
+    role: { $in: STAFF_ROLES },
+  }).select("-passwordHash");
+
+  if (!staff) {
+    const err = new Error("Staff not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  return staff;
+};
+
 const updateUserStatus = (id, isActive) =>
   User.findByIdAndUpdate(
     id,
@@ -231,6 +253,7 @@ module.exports = {
   uploadAvatar,
   listUsers,
   listStaffs,
+  getStaffById,
   updateUserStatus,
   updateUserRole,
   getUserById,

@@ -61,4 +61,33 @@ describe("User Service - Manage Staff", () => {
     expect(result.items[0].passwordHash).toBeUndefined();
     expect(result.pagination.total).toBe(1);
   });
+
+  it("gets staff detail by id", async () => {
+    const staff = await createUser({
+      fullName: "Manager",
+      email: "manager@unilife.local",
+      role: ROLES.MANAGER,
+    });
+
+    const result = await userService.getStaffById(staff._id.toString());
+
+    expect(result.fullName).toBe("Manager");
+    expect(result.role).toBe(ROLES.MANAGER);
+    expect(result.passwordHash).toBeUndefined();
+  });
+
+  it("does not return customer from staff detail endpoint", async () => {
+    const customer = await createUser({
+      fullName: "Customer",
+      email: "customer@unilife.local",
+      role: ROLES.CUSTOMER,
+    });
+
+    await expect(
+      userService.getStaffById(customer._id.toString()),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Staff not found",
+    });
+  });
 });

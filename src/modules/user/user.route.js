@@ -23,6 +23,11 @@ router.get(
   controller.listStaffs,
 );
 router.get(
+  "/staffs/:id",
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
+  controller.getStaffById,
+);
+router.get(
   "/:id",
   authorize(ROLES.ADMIN),
   controller.getUserById,
