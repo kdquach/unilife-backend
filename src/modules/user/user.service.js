@@ -192,6 +192,12 @@ const changeStaffRole = async (actor, id, role) => {
     throw err;
   }
 
+  if (role === ROLES.ADMIN && actor?.role !== ROLES.ADMIN) {
+    const err = new Error("Only admins can assign admin role");
+    err.statusCode = 403;
+    throw err;
+  }
+
   const staff = await User.findOne({
     _id: id,
     role: { $in: STAFF_ROLES },

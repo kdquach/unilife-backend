@@ -137,6 +137,26 @@ describe("User Service - Manage Staff", () => {
     });
   });
 
+  it("returns a clear error when non-admin assigns admin role", async () => {
+    const manager = await createUser({
+      fullName: "Manager",
+      email: "manager@unilife.local",
+      role: ROLES.MANAGER,
+    });
+    const staff = await createUser({
+      fullName: "Kitchen Staff",
+      email: "kitchen@unilife.local",
+      role: ROLES.KITCHEN_STAFF,
+    });
+
+    await expect(
+      userService.changeStaffRole(manager, staff._id.toString(), ROLES.ADMIN),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message: "Only admins can assign admin role",
+    });
+  });
+
   it("prevents changing role for customers through staff endpoint", async () => {
     const admin = await createUser({
       fullName: "Admin",
