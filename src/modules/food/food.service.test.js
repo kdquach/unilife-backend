@@ -266,6 +266,33 @@ describe("Food Service - Manager Foods", () => {
     expect(savedIngredients).toHaveLength(1);
   });
 
+  it("creates food recipe from multipart JSON string payload", async () => {
+    const ingredient = await Ingredient.create({
+      name: "Rice",
+      unit: "g",
+      isActive: true,
+    });
+
+    const result = await foodService.create({
+      name: "Rice Bowl",
+      price: 30000,
+      isMenuItem: "false",
+      stockQuantity: "10",
+      imageUrl: "/uploads/foods/rice-bowl.jpg",
+      ingredients: JSON.stringify([
+        {
+          ingredientId: ingredient._id.toString(),
+          quantityPerServing: 200,
+        },
+      ]),
+    });
+
+    expect(result.imageUrl).toBe("/uploads/foods/rice-bowl.jpg");
+    expect(result.ingredients).toHaveLength(1);
+    expect(result.ingredients[0].ingredientId.name).toBe("Rice");
+    expect(result.ingredients[0].quantityPerServing).toBe(200);
+  });
+
   it("updates food with normalized data and populated category", async () => {
     const category = await FoodCategory.create({ name: "Noodles" });
     const food = await Food.create({

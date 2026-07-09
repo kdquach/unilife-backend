@@ -3,6 +3,7 @@ const controller = require("./food.controller");
 const { authenticate } = require("../../middlewares/auth.middleware");
 const { authorize } = require("../../middlewares/role.middleware");
 const { writeActivityLog } = require("../../middlewares/activityLog.middleware");
+const { foodUpload } = require("../../middlewares/upload.middleware");
 const ROLES = require("../../constants/roles.constant");
 
 const router = express.Router();
@@ -38,12 +39,14 @@ router.get("/:id", controller.getById);
 router.post(
   "/",
   managerAccess,
+  foodUpload.single("image"),
   writeActivityLog("CREATE_FOOD", "Food"),
   controller.create,
 );
 router.patch(
   "/:id",
   managerAccess,
+  foodUpload.single("image"),
   writeActivityLog("UPDATE_FOOD", "Food"),
   controller.updateById,
 );

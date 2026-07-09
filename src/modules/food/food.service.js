@@ -160,6 +160,14 @@ const normalizePayload = (
 
 const normalizeIngredientItems = async (items) => {
   if (items === undefined) return undefined;
+  if (typeof items === "string") {
+    try {
+      items = items.trim() ? JSON.parse(items) : [];
+    } catch {
+      throw createError("Food ingredients must be valid JSON");
+    }
+  }
+
   if (!Array.isArray(items)) {
     throw createError("Food ingredients must be an array");
   }
