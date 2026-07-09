@@ -244,3 +244,29 @@ describe("Order Service - Scan Pickup QR", () => {
     });
   });
 });
+
+describe("Order Service - Cancel Order", () => {
+  it("should allow cancelling a PAID order regardless of creation time", async () => {
+    const order = await Order.create({
+      userId: new mongoose.Types.ObjectId(),
+      createdBy: new mongoose.Types.ObjectId(),
+      orderCode: "UL-PO-CANCEL-001",
+      status: "PAID",
+      totalPrice: 30000,
+      paymentMethod: "SEPAY",
+      paymentStatus: "PAID",
+      isWalkIn: false,
+      createdAt: new Date(Date.now() - 60 * 60 * 1000), // 1 hour ago
+    });
+
+    const updatedOrder = await orderService.updateById(order._id, { status: "CANCELLED" });
+
+    expect(updatedOrder.status).toBe("CANCELLED");
+    expect(updatedOrder.paymentStatus).toBe("REFUND_PENDING");
+
+    const savedOrder = await Order.findById(order._id);
+    expect(savedOrder.status).toBe("CANCELLED");
+    expect(savedOrder.paymentStatus).toBe("REFUND_PENDING");
+  });
+});
+
