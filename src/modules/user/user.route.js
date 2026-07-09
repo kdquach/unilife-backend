@@ -18,6 +18,34 @@ router.post(
 );
 router.get("/", authorize(ROLES.ADMIN, ROLES.MANAGER), controller.listUsers);
 router.get(
+  "/staffs",
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
+  controller.listStaffs,
+);
+router.post(
+  "/staffs",
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
+  writeActivityLog("CREATE_STAFF", "User"),
+  controller.createStaff,
+);
+router.get(
+  "/staffs/:id",
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
+  controller.getStaffById,
+);
+router.patch(
+  "/staffs/:id/role",
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
+  writeActivityLog("CHANGE_STAFF_ROLE", "User"),
+  controller.changeStaffRole,
+);
+router.patch(
+  "/staffs/:id",
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
+  writeActivityLog("UPDATE_STAFF", "User"),
+  controller.updateStaff,
+);
+router.get(
   "/:id",
   authorize(ROLES.ADMIN),
   controller.getUserById,
