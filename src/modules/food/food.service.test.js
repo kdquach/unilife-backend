@@ -230,4 +230,54 @@ describe("Food Service - Manager Foods", () => {
       message: "Food category not found",
     });
   });
+
+  it("updates food with normalized data and populated category", async () => {
+    const category = await FoodCategory.create({ name: "Noodles" });
+    const food = await Food.create({
+      name: "Chicken Rice",
+      price: 30000,
+      isActive: true,
+    });
+
+    const result = await foodService.updateById(food._id.toString(), {
+      categoryId: category._id.toString(),
+      name: "  Beef Noodle  ",
+      description: "  Updated dish  ",
+      price: "38000",
+      stockQuantity: "",
+      isMenuItem: "true",
+      isActive: "false",
+    });
+
+    expect(result.name).toBe("Beef Noodle");
+    expect(result.description).toBe("Updated dish");
+    expect(result.price).toBe(38000);
+    expect(result.stockQuantity).toBeNull();
+    expect(result.isMenuItem).toBe(true);
+    expect(result.isActive).toBe(false);
+    expect(result.categoryId.name).toBe("Noodles");
+  });
+
+  it("rejects updating a missing food", async () => {
+    const foodId = new mongoose.Types.ObjectId().toString();
+
+    await expect(
+      foodService.updateById(foodId, { name: "Missing Food" }),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Food not found",
+    });
+  });
+
+  it("rejects duplicate food names when updating food", async () => {
+    await Food.create({ name: "Milk Tea", price: 22000 });
+    const food = await Food.create({ name: "Orange Juice", price: 18000 });
+
+    await expect(
+      foodService.updateById(food._id.toString(), { name: " milk tea " }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: "Food name already exists",
+    });
+  });
 });

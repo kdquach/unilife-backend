@@ -41,7 +41,17 @@ router.post(
   writeActivityLog("CREATE_FOOD", "Food"),
   controller.create,
 );
-router.patch("/:id", controller.updateById);
-router.delete("/:id", controller.deleteById);
+router.patch(
+  "/:id",
+  managerAccess,
+  writeActivityLog("UPDATE_FOOD", "Food"),
+  controller.updateById,
+);
+router.delete(
+  "/:id",
+  managerAccess,
+  writeActivityLog("DELETE_FOOD", "Food"),
+  controller.deleteById,
+);
 
 module.exports = router;

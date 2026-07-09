@@ -332,8 +332,19 @@ const getByIdForKitchen = async (id) => {
   return food;
 };
 
-const updateById = (id, data) =>
-  Food.findByIdAndUpdate(id, data, { new: true, runValidators: true });
+const updateById = async (id, data) => {
+  await getExistingById(id);
+  const payload = normalizePayload(data, { partial: true });
+  await Promise.all([
+    ensureUniqueName(payload.name, id),
+    ensureCategoryExists(payload.categoryId),
+  ]);
+
+  return Food.findByIdAndUpdate(id, payload, {
+    new: true,
+    runValidators: true,
+  }).populate("categoryId", "name isActive");
+};
 
 const deleteById = (id) => Food.findByIdAndDelete(id);
 
