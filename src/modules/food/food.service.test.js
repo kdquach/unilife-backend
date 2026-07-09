@@ -3,6 +3,8 @@ const { MongoMemoryServer } = require("mongodb-memory-server");
 const foodService = require("./food.service");
 const Food = require("./food.model");
 const FoodCategory = require("../foodCategory/foodCategory.model");
+const FoodIngredient = require("../foodIngredient/foodIngredient.model");
+const Ingredient = require("../ingredient/ingredient.model");
 
 let mongoServer;
 
@@ -19,6 +21,8 @@ afterAll(async () => {
 beforeEach(async () => {
   await Food.deleteMany({});
   await FoodCategory.deleteMany({});
+  await FoodIngredient.deleteMany({});
+  await Ingredient.deleteMany({});
 });
 
 describe("Food Service - Kitchen Staff Foods", () => {
@@ -231,6 +235,37 @@ describe("Food Service - Manager Foods", () => {
     });
   });
 
+  it("creates menu schedule food without food stock and with ingredient recipe", async () => {
+    const ingredient = await Ingredient.create({
+      name: "Chicken Breast",
+      unit: "g",
+      currentStock: 5000,
+      isActive: true,
+    });
+
+    const result = await foodService.create({
+      name: "Chicken Set",
+      price: 45000,
+      isMenuItem: true,
+      stockQuantity: 25,
+      ingredients: [
+        {
+          ingredientId: ingredient._id.toString(),
+          quantityPerServing: "150",
+        },
+      ],
+    });
+
+    expect(result.stockQuantity).toBeNull();
+    expect(result.ingredients).toHaveLength(1);
+    expect(result.ingredients[0].ingredientId.name).toBe("Chicken Breast");
+    expect(result.ingredients[0].quantityPerServing).toBe(150);
+    expect(result.ingredients[0].unit).toBe("g");
+
+    const savedIngredients = await FoodIngredient.find({ foodId: result._id });
+    expect(savedIngredients).toHaveLength(1);
+  });
+
   it("updates food with normalized data and populated category", async () => {
     const category = await FoodCategory.create({ name: "Noodles" });
     const food = await Food.create({
@@ -256,6 +291,43 @@ describe("Food Service - Manager Foods", () => {
     expect(result.isMenuItem).toBe(true);
     expect(result.isActive).toBe(false);
     expect(result.categoryId.name).toBe("Noodles");
+  });
+
+  it("replaces food ingredient recipe when updating food", async () => {
+    const chicken = await Ingredient.create({ name: "Chicken", unit: "g" });
+    const rice = await Ingredient.create({ name: "Rice", unit: "g" });
+    const food = await Food.create({
+      name: "Chicken Rice",
+      price: 30000,
+      isMenuItem: false,
+      stockQuantity: 10,
+    });
+    await FoodIngredient.create({
+      foodId: food._id,
+      ingredientId: chicken._id,
+      quantityPerServing: 120,
+      unit: "g",
+    });
+
+    const result = await foodService.updateById(food._id.toString(), {
+      ingredients: [
+        {
+          ingredientId: rice._id.toString(),
+          quantityPerServing: 180,
+          unit: "g",
+        },
+      ],
+    });
+
+    expect(result.ingredients).toHaveLength(1);
+    expect(result.ingredients[0].ingredientId.name).toBe("Rice");
+    expect(result.ingredients[0].quantityPerServing).toBe(180);
+
+    const savedIngredients = await FoodIngredient.find({ foodId: food._id });
+    expect(savedIngredients).toHaveLength(1);
+    expect(savedIngredients[0].ingredientId.toString()).toBe(
+      rice._id.toString(),
+    );
   });
 
   it("rejects updating a missing food", async () => {
