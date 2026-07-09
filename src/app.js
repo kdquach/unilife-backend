@@ -13,15 +13,15 @@ const app = express();
 
 app.use(helmet());
 
-// Cấu hình CORS linh hoạt:
-//   - Development: cho phép mọi localhost/10.0.2.2 (bất kỳ port) để hỗ trợ
-//                  Flutter web (Chrome) và Android Emulator đồng thời
-//   - Production:  chỉ cho phép CLIENT_URL trong .env
+// Flexible CORS configuration:
+//   - Development: allow any localhost/10.0.2.2 (any port) to support
+//                  Flutter web (Chrome) and Android Emulator simultaneously
+//   - Production:  only allow CLIENT_URL from .env
 const corsOrigin =
   process.env.NODE_ENV === "production"
     ? process.env.CLIENT_URL || false
     : (origin, callback) => {
-        // Cho phép requests không có origin (Postman, mobile app native)
+        // Allow requests without origin (Postman, mobile app native)
         if (!origin) return callback(null, true);
         const isAllowed =
           /^https?:\/\/(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?$/.test(

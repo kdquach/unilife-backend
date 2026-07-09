@@ -1,19 +1,13 @@
 const mongoose = require("mongoose");
-const { MongoMemoryServer } = require("mongodb-memory-server");
+
 const service = require("./foodCategory.service");
 const FoodCategory = require("./foodCategory.model");
 
-let mongoServer;
 
-beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create();
-  await mongoose.connect(mongoServer.getUri());
-});
 
-afterAll(async () => {
-  await mongoose.disconnect();
-  await mongoServer.stop();
-});
+
+
+
 
 beforeEach(async () => {
   await FoodCategory.deleteMany({});

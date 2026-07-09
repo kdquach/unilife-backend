@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const { MongoMemoryServer } = require("mongodb-memory-server");
+
 const orderService = require("./order.service");
 const Order = require("./order.model");
 const OrderItem = require("../orderItem/orderItem.model");
@@ -9,23 +9,16 @@ const MenuScheduleItem = require("../menuScheduleItem/menuScheduleItem.model");
 const Cart = require("../cart/cart.model");
 const CartItem = require("../cartItem/cartItem.model");
 
-let mongoServer;
+
 
 beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create();
-  const uri = mongoServer.getUri();
-  await mongoose.connect(uri);
-
   // Setup environment variables for SePay configs used in checkout
   process.env.SEPAY_BANK_ACCOUNT_NUMBER = "0000000001";
   process.env.SEPAY_BANK_NAME = "Vietcombank";
   process.env.SEPAY_ACCOUNT_NAME = "SBSEPAYJDSCCIHAPKZK";
 });
 
-afterAll(async () => {
-  await mongoose.disconnect();
-  await mongoServer.stop();
-});
+
 
 beforeEach(async () => {
   await Order.deleteMany({});
