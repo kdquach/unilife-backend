@@ -18,6 +18,11 @@ router.post(
 );
 router.get("/", authorize(ROLES.ADMIN, ROLES.MANAGER), controller.listUsers);
 router.get(
+  "/staffs",
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
+  controller.listStaffs,
+);
+router.get(
   "/:id",
   authorize(ROLES.ADMIN),
   controller.getUserById,

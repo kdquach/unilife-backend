@@ -6,6 +6,13 @@ const fs = require("fs");
 const { hashPassword } = require("../../utils/password.util");
 const ROLES = require("../../constants/roles.constant");
 
+const STAFF_ROLES = [
+  ROLES.ADMIN,
+  ROLES.MANAGER,
+  ROLES.COUNTER_STAFF,
+  ROLES.KITCHEN_STAFF,
+];
+
 const getProfile = (userId) => User.findById(userId).select("-passwordHash");
 
 const updateProfile = (userId, data) => {
@@ -72,6 +79,58 @@ const listUsers = async (query = {}) => {
       { email: new RegExp(query.keyword, "i") },
       { phone: new RegExp(query.keyword, "i") },
     ];
+
+  const [items, total] = await Promise.all([
+    User.find(filter)
+      .select("-passwordHash")
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 }),
+    User.countDocuments(filter),
+  ]);
+
+  return {
+    items,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  };
+};
+
+const escapeRegExp = (value = "") =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const toBoolean = (value) => {
+  if (value === undefined) return undefined;
+  if (typeof value === "boolean") return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return undefined;
+};
+
+const buildStaffFilter = (query = {}) => {
+  const filter = { role: { $in: STAFF_ROLES } };
+  const requestedRole = query.role;
+  const isActive = toBoolean(query.isActive);
+  const keyword = (query.keyword || query.q || query.search || "").trim();
+
+  if (requestedRole && STAFF_ROLES.includes(requestedRole)) {
+    filter.role = requestedRole;
+  }
+
+  if (isActive !== undefined) {
+    filter.isActive = isActive;
+  }
+
+  if (keyword) {
+    const regex = new RegExp(escapeRegExp(keyword), "i");
+    filter.$or = [{ fullName: regex }, { email: regex }, { phone: regex }];
+  }
+
+  return filter;
+};
+
+const listStaffs = async (query = {}) => {
+  const { page, limit, skip } = getPagination(query);
+  const filter = buildStaffFilter(query);
 
   const [items, total] = await Promise.all([
     User.find(filter)
@@ -171,6 +230,7 @@ module.exports = {
   updateProfile,
   uploadAvatar,
   listUsers,
+  listStaffs,
   updateUserStatus,
   updateUserRole,
   getUserById,

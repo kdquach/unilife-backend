@@ -49,6 +49,9 @@ const uploadAvatar = asyncHandler(async (req, res) => {
 const listUsers = asyncHandler(async (req, res) =>
   success(res, await service.listUsers(req.query), "Get users successfully"),
 );
+const listStaffs = asyncHandler(async (req, res) =>
+  success(res, await service.listStaffs(req.query), "Get staffs successfully"),
+);
 const updateUserStatus = asyncHandler(async (req, res) =>
   success(
     res,
@@ -93,6 +96,7 @@ module.exports = {
   updateProfile,
   uploadAvatar,
   listUsers,
+  listStaffs,
   updateUserStatus,
   updateUserRole,
   getUserById,
