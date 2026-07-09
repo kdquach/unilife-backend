@@ -290,6 +290,65 @@ const normalizeStaffUpdatePayload = (data = {}) => {
   return payload;
 };
 
+const normalizeStaffCreatePayload = (data = {}) => {
+  const payload = {
+    fullName: data.fullName,
+    email: data.email,
+    phone: data.phone,
+    password: data.password,
+    role: data.role,
+    isActive: data.isActive,
+  };
+
+  if (typeof payload.fullName !== "string" || payload.fullName.trim() === "") {
+    const err = new Error("Full name is required");
+    err.statusCode = 400;
+    throw err;
+  }
+  payload.fullName = payload.fullName.trim();
+
+  if (typeof payload.email !== "string" || payload.email.trim() === "") {
+    const err = new Error("Email is required");
+    err.statusCode = 400;
+    throw err;
+  }
+  payload.email = payload.email.trim().toLowerCase();
+
+  if (typeof payload.password !== "string" || payload.password.length < 6) {
+    const err = new Error("Password must be at least 6 characters");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (payload.phone !== undefined && payload.phone !== null) {
+    if (typeof payload.phone !== "string" || !/^[0-9]{9,15}$/.test(payload.phone)) {
+      const err = new Error("Invalid phone number format");
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+
+  ensureStaffRole(payload.role);
+
+  if (payload.role === ROLES.ADMIN) {
+    const err = new Error("Admin staff cannot be created from staff management");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  if (payload.isActive !== undefined && typeof payload.isActive !== "boolean") {
+    const parsed = toBoolean(payload.isActive);
+    if (parsed === undefined) {
+      const err = new Error("Staff status must be a boolean");
+      err.statusCode = 400;
+      throw err;
+    }
+    payload.isActive = parsed;
+  }
+
+  return payload;
+};
+
 const changeStaffRole = async (actor, id, role) => {
   ensureStaffRole(role);
 
@@ -350,6 +409,38 @@ const updateStaff = async (actor, id, data) => {
   const safeStaff = staff.toObject({ virtuals: true });
   delete safeStaff.passwordHash;
   return safeStaff;
+};
+
+const createStaff = async (actor, data) => {
+  const payload = normalizeStaffCreatePayload(data);
+
+  if (
+    actor?.role === ROLES.MANAGER &&
+    !MANAGER_ASSIGNABLE_STAFF_ROLES.includes(payload.role)
+  ) {
+    const err = new Error("Managers can only create counter or kitchen staff");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  const existing = await User.findOne({ email: payload.email });
+  if (existing) {
+    const err = new Error("Email already exists");
+    err.statusCode = 409;
+    throw err;
+  }
+
+  const staff = await User.create({
+    fullName: payload.fullName,
+    email: payload.email,
+    phone: payload.phone,
+    passwordHash: await hashPassword(payload.password),
+    role: payload.role,
+    avatarUrl: data.avatarUrl || null,
+    isActive: payload.isActive !== undefined ? payload.isActive : true,
+  });
+
+  return staff.toSafeJSON();
 };
 
 const updateUserStatus = (id, isActive) =>
@@ -439,6 +530,7 @@ module.exports = {
   getStaffById,
   changeStaffRole,
   updateStaff,
+  createStaff,
   updateUserStatus,
   updateUserRole,
   getUserById,

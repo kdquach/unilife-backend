@@ -289,4 +289,106 @@ describe("User Service - Manage Staff", () => {
       message: "Email already exists",
     });
   });
+
+  it("allows admin to create manager staff", async () => {
+    const admin = await createUser({
+      fullName: "Admin",
+      email: "admin@unilife.local",
+      role: ROLES.ADMIN,
+    });
+
+    const result = await userService.createStaff(admin, {
+      fullName: "New Manager",
+      email: "new.manager@unilife.local",
+      phone: "0912345678",
+      password: "secret123",
+      role: ROLES.MANAGER,
+    });
+
+    expect(result.fullName).toBe("New Manager");
+    expect(result.email).toBe("new.manager@unilife.local");
+    expect(result.role).toBe(ROLES.MANAGER);
+    expect(result.isActive).toBe(true);
+    expect(result.passwordHash).toBeUndefined();
+  });
+
+  it("allows manager to create counter or kitchen staff only", async () => {
+    const manager = await createUser({
+      fullName: "Manager",
+      email: "manager@unilife.local",
+      role: ROLES.MANAGER,
+    });
+
+    const result = await userService.createStaff(manager, {
+      fullName: "Counter Staff",
+      email: "created.counter@unilife.local",
+      phone: "0912345678",
+      password: "secret123",
+      role: ROLES.COUNTER_STAFF,
+      isActive: "false",
+    });
+
+    expect(result.role).toBe(ROLES.COUNTER_STAFF);
+    expect(result.isActive).toBe(false);
+
+    await expect(
+      userService.createStaff(manager, {
+        fullName: "Manager Staff",
+        email: "created.manager@unilife.local",
+        phone: "0912345679",
+        password: "secret123",
+        role: ROLES.MANAGER,
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message: "Managers can only create counter or kitchen staff",
+    });
+  });
+
+  it("prevents creating admin staff from staff management", async () => {
+    const admin = await createUser({
+      fullName: "Admin",
+      email: "admin@unilife.local",
+      role: ROLES.ADMIN,
+    });
+
+    await expect(
+      userService.createStaff(admin, {
+        fullName: "Another Admin",
+        email: "another.admin@unilife.local",
+        phone: "0912345678",
+        password: "secret123",
+        role: ROLES.ADMIN,
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message: "Admin staff cannot be created from staff management",
+    });
+  });
+
+  it("prevents creating staff with duplicate email", async () => {
+    const admin = await createUser({
+      fullName: "Admin",
+      email: "admin@unilife.local",
+      role: ROLES.ADMIN,
+    });
+    await createUser({
+      fullName: "Existing Staff",
+      email: "existing.staff@unilife.local",
+      role: ROLES.KITCHEN_STAFF,
+    });
+
+    await expect(
+      userService.createStaff(admin, {
+        fullName: "Duplicated Staff",
+        email: "existing.staff@unilife.local",
+        phone: "0912345678",
+        password: "secret123",
+        role: ROLES.KITCHEN_STAFF,
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: "Email already exists",
+    });
+  });
 });

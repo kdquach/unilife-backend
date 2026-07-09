@@ -22,6 +22,12 @@ router.get(
   authorize(ROLES.ADMIN, ROLES.MANAGER),
   controller.listStaffs,
 );
+router.post(
+  "/staffs",
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
+  writeActivityLog("CREATE_STAFF", "User"),
+  controller.createStaff,
+);
 router.get(
   "/staffs/:id",
   authorize(ROLES.ADMIN, ROLES.MANAGER),

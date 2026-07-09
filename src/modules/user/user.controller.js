@@ -52,6 +52,14 @@ const listUsers = asyncHandler(async (req, res) =>
 const listStaffs = asyncHandler(async (req, res) =>
   success(res, await service.listStaffs(req.query), "Get staffs successfully"),
 );
+const createStaff = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.createStaff(req.user, req.body),
+    "Staff created successfully",
+    201,
+  ),
+);
 const getStaffById = asyncHandler(async (req, res) =>
   success(
     res,
@@ -118,6 +126,7 @@ module.exports = {
   uploadAvatar,
   listUsers,
   listStaffs,
+  createStaff,
   getStaffById,
   changeStaffRole,
   updateStaff,
