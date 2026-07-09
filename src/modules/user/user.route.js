@@ -3,6 +3,7 @@ const controller = require("./user.controller");
 const { authenticate } = require("../../middlewares/auth.middleware");
 const { authorize } = require("../../middlewares/role.middleware");
 const { avatarUpload } = require("../../middlewares/upload.middleware");
+const { writeActivityLog } = require("../../middlewares/activityLog.middleware");
 const ROLES = require("../../constants/roles.constant");
 
 const router = express.Router();
@@ -25,21 +26,25 @@ router.get(
 router.post(
   "/",
   authorize(ROLES.ADMIN),
+  writeActivityLog("CREATE_USER", "User"),
   controller.createUser,
 );
 router.patch(
   "/:id",
   authorize(ROLES.ADMIN),
+  writeActivityLog("UPDATE_USER", "User"),
   controller.updateUser,
 );
 router.patch(
   "/:id/status",
   authorize(ROLES.ADMIN),
+  writeActivityLog("UPDATE_USER_STATUS", "User"),
   controller.updateUserStatus,
 );
 router.patch(
   "/:id/role",
   authorize(ROLES.ADMIN, ROLES.MANAGER),
+  writeActivityLog("UPDATE_USER_ROLE", "User"),
   controller.updateUserRole,
 );
 

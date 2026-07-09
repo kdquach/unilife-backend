@@ -2,6 +2,7 @@ const express = require("express");
 const controller = require("./ingredientCategory.controller");
 const { authenticate } = require("../../middlewares/auth.middleware");
 const { authorize } = require("../../middlewares/role.middleware");
+const { writeActivityLog } = require("../../middlewares/activityLog.middleware");
 const ROLES = require("../../constants/roles.constant");
 
 const router = express.Router();
@@ -14,8 +15,8 @@ router.get("/:id", controller.getById);
 router.use(authenticate);
 router.use(authorize(ROLES.ADMIN, ROLES.MANAGER));
 
-router.post("/", controller.create);
-router.patch("/:id", controller.updateById);
-router.delete("/:id", controller.deleteById);
+router.post("/", writeActivityLog("CREATE_INGREDIENT_CATEGORY", "IngredientCategory"), controller.create);
+router.patch("/:id", writeActivityLog("UPDATE_INGREDIENT_CATEGORY", "IngredientCategory"), controller.updateById);
+router.delete("/:id", writeActivityLog("DELETE_INGREDIENT_CATEGORY", "IngredientCategory"), controller.deleteById);
 
 module.exports = router;
