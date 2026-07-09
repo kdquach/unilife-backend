@@ -33,6 +33,12 @@ router.patch(
   writeActivityLog("CHANGE_STAFF_ROLE", "User"),
   controller.changeStaffRole,
 );
+router.patch(
+  "/staffs/:id",
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
+  writeActivityLog("UPDATE_STAFF", "User"),
+  controller.updateStaff,
+);
 router.get(
   "/:id",
   authorize(ROLES.ADMIN),

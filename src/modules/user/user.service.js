@@ -18,6 +18,8 @@ const MANAGER_ASSIGNABLE_STAFF_ROLES = [
   ROLES.KITCHEN_STAFF,
 ];
 
+const STAFF_UPDATE_FIELDS = ["fullName", "email", "phone", "role", "isActive"];
+
 const getProfile = (userId) => User.findById(userId).select("-passwordHash");
 
 const updateProfile = (userId, data) => {
@@ -173,30 +175,54 @@ const getStaffById = async (id) => {
   return staff;
 };
 
-const changeStaffRole = async (actor, id, role) => {
+const validateStaffId = (id) => {
   if (!mongoose.Types.ObjectId.isValid(id)) {
     const err = new Error("Invalid staff id");
     err.statusCode = 400;
     throw err;
   }
+};
 
+const ensureStaffRole = (role) => {
   if (!STAFF_ROLES.includes(role)) {
     const err = new Error("Invalid staff role");
     err.statusCode = 400;
     throw err;
   }
+};
 
-  if (actor?._id?.toString() === id.toString()) {
-    const err = new Error("Cannot change your own role");
-    err.statusCode = 400;
-    throw err;
-  }
-
+const ensureCanAssignStaffRole = (actor, currentRole, role) => {
   if (role === ROLES.ADMIN && actor?.role !== ROLES.ADMIN) {
     const err = new Error("Only admins can assign admin role");
     err.statusCode = 403;
     throw err;
   }
+
+  if (actor?.role === ROLES.MANAGER) {
+    const canManageTarget = MANAGER_ASSIGNABLE_STAFF_ROLES.includes(currentRole);
+    const canAssignRole = MANAGER_ASSIGNABLE_STAFF_ROLES.includes(role);
+
+    if (!canManageTarget || !canAssignRole) {
+      const err = new Error("Managers can only manage counter or kitchen staff");
+      err.statusCode = 403;
+      throw err;
+    }
+  }
+};
+
+const ensureCanManageStaff = (actor, staff) => {
+  if (
+    actor?.role === ROLES.MANAGER &&
+    !MANAGER_ASSIGNABLE_STAFF_ROLES.includes(staff.role)
+  ) {
+    const err = new Error("Managers can only manage counter or kitchen staff");
+    err.statusCode = 403;
+    throw err;
+  }
+};
+
+const getStaffDocumentById = async (id) => {
+  validateStaffId(id);
 
   const staff = await User.findOne({
     _id: id,
@@ -209,18 +235,116 @@ const changeStaffRole = async (actor, id, role) => {
     throw err;
   }
 
-  if (actor?.role === ROLES.MANAGER) {
-    const canManageTarget = MANAGER_ASSIGNABLE_STAFF_ROLES.includes(staff.role);
-    const canAssignRole = MANAGER_ASSIGNABLE_STAFF_ROLES.includes(role);
+  return staff;
+};
 
-    if (!canManageTarget || !canAssignRole) {
-      const err = new Error("Managers can only manage counter or kitchen staff");
-      err.statusCode = 403;
+const pickStaffUpdateFields = (data = {}) =>
+  STAFF_UPDATE_FIELDS.reduce((payload, field) => {
+    if (data[field] !== undefined) payload[field] = data[field];
+    return payload;
+  }, {});
+
+const normalizeStaffUpdatePayload = (data = {}) => {
+  const payload = pickStaffUpdateFields(data);
+
+  if (payload.fullName !== undefined) {
+    if (typeof payload.fullName !== "string" || payload.fullName.trim() === "") {
+      const err = new Error("Full name cannot be empty");
+      err.statusCode = 400;
+      throw err;
+    }
+    payload.fullName = payload.fullName.trim();
+  }
+
+  if (payload.email !== undefined) {
+    if (typeof payload.email !== "string" || payload.email.trim() === "") {
+      const err = new Error("Email cannot be empty");
+      err.statusCode = 400;
+      throw err;
+    }
+    payload.email = payload.email.trim().toLowerCase();
+  }
+
+  if (payload.phone !== undefined && payload.phone !== null) {
+    if (typeof payload.phone !== "string" || !/^[0-9]{9,15}$/.test(payload.phone)) {
+      const err = new Error("Invalid phone number format");
+      err.statusCode = 400;
       throw err;
     }
   }
 
+  if (payload.role !== undefined) {
+    ensureStaffRole(payload.role);
+  }
+
+  if (payload.isActive !== undefined && typeof payload.isActive !== "boolean") {
+    const parsed = toBoolean(payload.isActive);
+    if (parsed === undefined) {
+      const err = new Error("Staff status must be a boolean");
+      err.statusCode = 400;
+      throw err;
+    }
+    payload.isActive = parsed;
+  }
+
+  return payload;
+};
+
+const changeStaffRole = async (actor, id, role) => {
+  ensureStaffRole(role);
+
+  if (actor?._id?.toString() === id.toString()) {
+    const err = new Error("Cannot change your own role");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const staff = await getStaffDocumentById(id);
+  ensureCanAssignStaffRole(actor, staff.role, role);
+
   staff.role = role;
+  await staff.save();
+
+  const safeStaff = staff.toObject({ virtuals: true });
+  delete safeStaff.passwordHash;
+  return safeStaff;
+};
+
+const updateStaff = async (actor, id, data) => {
+  const payload = normalizeStaffUpdatePayload(data);
+  const staff = await getStaffDocumentById(id);
+
+  ensureCanManageStaff(actor, staff);
+
+  if (payload.role !== undefined) {
+    if (actor?._id?.toString() === id.toString()) {
+      const err = new Error("Cannot change your own role");
+      err.statusCode = 400;
+      throw err;
+    }
+    ensureCanAssignStaffRole(actor, staff.role, payload.role);
+  }
+
+  if (payload.isActive !== undefined && actor?._id?.toString() === id.toString()) {
+    const err = new Error("Cannot change your own status");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (payload.email && payload.email !== staff.email) {
+    const existed = await User.findOne({
+      email: payload.email,
+      _id: { $ne: id },
+    });
+
+    if (existed) {
+      const err = new Error("Email already exists");
+      err.statusCode = 409;
+      throw err;
+    }
+  }
+
+  Object.assign(staff, payload);
   await staff.save();
 
   const safeStaff = staff.toObject({ virtuals: true });
@@ -314,6 +438,7 @@ module.exports = {
   listStaffs,
   getStaffById,
   changeStaffRole,
+  updateStaff,
   updateUserStatus,
   updateUserRole,
   getUserById,

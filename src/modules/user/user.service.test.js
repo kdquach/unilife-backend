@@ -195,4 +195,98 @@ describe("User Service - Manage Staff", () => {
       message: "Cannot change your own role",
     });
   });
+
+  it("updates staff basic information, status and role", async () => {
+    const admin = await createUser({
+      fullName: "Admin",
+      email: "admin@unilife.local",
+      role: ROLES.ADMIN,
+    });
+    const staff = await createUser({
+      fullName: "Kitchen Staff",
+      email: "kitchen@unilife.local",
+      role: ROLES.KITCHEN_STAFF,
+    });
+
+    const result = await userService.updateStaff(admin, staff._id.toString(), {
+      fullName: "Counter Staff",
+      email: "counter.staff@unilife.local",
+      phone: "0912345678",
+      role: ROLES.COUNTER_STAFF,
+      isActive: false,
+    });
+
+    expect(result.fullName).toBe("Counter Staff");
+    expect(result.email).toBe("counter.staff@unilife.local");
+    expect(result.phone).toBe("0912345678");
+    expect(result.role).toBe(ROLES.COUNTER_STAFF);
+    expect(result.isActive).toBe(false);
+    expect(result.passwordHash).toBeUndefined();
+  });
+
+  it("prevents manager from updating manager staff information", async () => {
+    const manager = await createUser({
+      fullName: "Manager",
+      email: "manager@unilife.local",
+      role: ROLES.MANAGER,
+    });
+    const anotherManager = await createUser({
+      fullName: "Other Manager",
+      email: "other.manager@unilife.local",
+      role: ROLES.MANAGER,
+    });
+
+    await expect(
+      userService.updateStaff(manager, anotherManager._id.toString(), {
+        fullName: "Updated Manager",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message: "Managers can only manage counter or kitchen staff",
+    });
+  });
+
+  it("prevents changing own staff status through update staff", async () => {
+    const admin = await createUser({
+      fullName: "Admin",
+      email: "admin@unilife.local",
+      role: ROLES.ADMIN,
+    });
+
+    await expect(
+      userService.updateStaff(admin, admin._id.toString(), {
+        isActive: false,
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Cannot change your own status",
+    });
+  });
+
+  it("prevents duplicate email when updating staff information", async () => {
+    const admin = await createUser({
+      fullName: "Admin",
+      email: "admin@unilife.local",
+      role: ROLES.ADMIN,
+    });
+    const staff = await createUser({
+      fullName: "Kitchen Staff",
+      email: "kitchen@unilife.local",
+      role: ROLES.KITCHEN_STAFF,
+    });
+    await createUser({
+      fullName: "Counter Staff",
+      email: "counter@unilife.local",
+      role: ROLES.COUNTER_STAFF,
+    });
+
+    await expect(
+      userService.updateStaff(admin, staff._id.toString(), {
+        email: "counter@unilife.local",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: "Email already exists",
+    });
+  });
 });
