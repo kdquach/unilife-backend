@@ -14,5 +14,6 @@ router.get(
   authorize(ROLES.ADMIN, ROLES.MANAGER),
   controller.getRevenueReport,
 );
+router.get("/peak-hour", controller.getPeakHourReport);
 
 module.exports = router;

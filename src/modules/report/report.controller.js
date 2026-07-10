@@ -12,6 +12,17 @@ const getRevenueReport = asyncHandler(async (req, res) => {
   );
 });
 
+const getPeakHourReport = asyncHandler(async (req, res) => {
+  const result = await service.getPeakHourReport(req.query);
+
+  return success(
+    res,
+    result,
+    "Peak hour report retrieved successfully"
+  );
+});
+
 module.exports = {
   getRevenueReport,
+  getPeakHourReport,
 };
