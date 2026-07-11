@@ -22,7 +22,18 @@ const getPeakHourReport = asyncHandler(async (req, res) => {
   );
 });
 
+const getOrderStatistics = asyncHandler(async (req, res) => {
+  const result = await service.getOrderStatistics(req.query);
+
+  return success(
+    res,
+    result,
+    "Order statistics retrieved successfully"
+  );
+});
+
 module.exports = {
   getRevenueReport,
   getPeakHourReport,
+  getOrderStatistics,
 };

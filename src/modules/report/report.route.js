@@ -15,5 +15,9 @@ router.get(
   controller.getRevenueReport,
 );
 router.get("/peak-hour", controller.getPeakHourReport);
+router.get(
+  "/order-statistics",
+  controller.getOrderStatistics
+);
 
 module.exports = router;
