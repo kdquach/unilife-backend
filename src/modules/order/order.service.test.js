@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const { MongoMemoryServer } = require("mongodb-memory-server");
+
 const orderService = require("./order.service");
 const Order = require("./order.model");
 const OrderItem = require("../orderItem/orderItem.model");
@@ -9,23 +9,16 @@ const MenuScheduleItem = require("../menuScheduleItem/menuScheduleItem.model");
 const Cart = require("../cart/cart.model");
 const CartItem = require("../cartItem/cartItem.model");
 
-let mongoServer;
+
 
 beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create();
-  const uri = mongoServer.getUri();
-  await mongoose.connect(uri);
-
   // Setup environment variables for SePay configs used in checkout
   process.env.SEPAY_BANK_ACCOUNT_NUMBER = "0000000001";
   process.env.SEPAY_BANK_NAME = "Vietcombank";
   process.env.SEPAY_ACCOUNT_NAME = "SBSEPAYJDSCCIHAPKZK";
 });
 
-afterAll(async () => {
-  await mongoose.disconnect();
-  await mongoServer.stop();
-});
+
 
 beforeEach(async () => {
   await Order.deleteMany({});
@@ -244,3 +237,29 @@ describe("Order Service - Scan Pickup QR", () => {
     });
   });
 });
+
+describe("Order Service - Cancel Order", () => {
+  it("should allow cancelling a PAID order regardless of creation time", async () => {
+    const order = await Order.create({
+      userId: new mongoose.Types.ObjectId(),
+      createdBy: new mongoose.Types.ObjectId(),
+      orderCode: "UL-PO-CANCEL-001",
+      status: "PAID",
+      totalPrice: 30000,
+      paymentMethod: "SEPAY",
+      paymentStatus: "PAID",
+      isWalkIn: false,
+      createdAt: new Date(Date.now() - 60 * 60 * 1000), // 1 hour ago
+    });
+
+    const updatedOrder = await orderService.updateById(order._id, { status: "CANCELLED" });
+
+    expect(updatedOrder.status).toBe("CANCELLED");
+    expect(updatedOrder.paymentStatus).toBe("REFUND_PENDING");
+
+    const savedOrder = await Order.findById(order._id);
+    expect(savedOrder.status).toBe("CANCELLED");
+    expect(savedOrder.paymentStatus).toBe("REFUND_PENDING");
+  });
+});
+

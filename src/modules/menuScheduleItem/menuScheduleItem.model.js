@@ -11,7 +11,7 @@ const menuScheduleItemSchema = new mongoose.Schema(
     foodId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Food",
-      required: false,
+      required: true,
       index: true,
     },
     maxServing: { type: Number, default: 0 },
@@ -19,13 +19,29 @@ const menuScheduleItemSchema = new mongoose.Schema(
     servedCount: { type: Number, default: 0 },
     remainingCount: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true, index: true },
+    deductedBatches: [
+      {
+        ingredientId: { type: mongoose.Schema.Types.ObjectId, ref: "Ingredient" },
+        batchId: { type: mongoose.Schema.Types.ObjectId, ref: "IngredientBatch" },
+        quantity: { type: Number },
+      },
+    ],
+    recipeSnapshot: [
+      {
+        ingredientId: { type: mongoose.Schema.Types.ObjectId, ref: "Ingredient" },
+        quantityPerServing: { type: Number },
+      },
+    ],
   },
   {
     toJSON: { virtuals: true },
     toObject: { virtuals: true },
     timestamps: true,
+    optimisticConcurrency: true,
   },
 );
+
+menuScheduleItemSchema.index({ menuScheduleId: 1, foodId: 1 }, { unique: true, partialFilterExpression: { isActive: true } });
 
 menuScheduleItemSchema.virtual("menuScheduleItemId").get(function () {
   return this._id.toString();

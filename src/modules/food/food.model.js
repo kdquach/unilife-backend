@@ -12,10 +12,10 @@ const foodSchema = new mongoose.Schema(
     description: { type: String, default: null },
     imageUrl: { type: String, default: null },
     price: { type: Number, default: 0 },
-    // true  = món bán theo lịch menu (MenuScheduleItem)
-    // false = món bán hàng ngày (always available)
+    // true  = sold via menu schedule (MenuScheduleItem)
+    // false = daily menu item (always available)
     isMenuItem: { type: Boolean, default: false, index: true },
-    // Số lượng tồn kho trong ngày - chỉ dùng cho món hàng ngày (isMenuItem: false)
+    // Daily inventory stock - only used for daily items (isMenuItem: false)
     stockQuantity: { type: Number, default: null },
     isActive: { type: Boolean, default: true, index: true },
   },
