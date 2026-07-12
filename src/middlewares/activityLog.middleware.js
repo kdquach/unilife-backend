@@ -4,10 +4,6 @@ const generateDescription = (action, req) => {
   const body = req.body || {};
   
   switch (action) {
-    case "LOGIN":
-      return `Đăng nhập vào hệ thống`;
-    case "LOGOUT":
-      return `Đăng xuất khỏi hệ thống`;
     case "CREATE_USER":
       return `Tạo tài khoản người dùng mới: ${body.fullName || ""} (${body.email || ""}) với vai trò ${body.role || ""}`;
     case "UPDATE_USER":

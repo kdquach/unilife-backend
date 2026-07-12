@@ -1,19 +1,18 @@
 const express = require("express");
 const controller = require("./auth.controller");
 const { authenticate } = require("../../middlewares/auth.middleware");
-const { writeActivityLog } = require("../../middlewares/activityLog.middleware");
 
 const router = express.Router();
 
 router.post("/register", controller.register);
 router.post("/verify-register-otp", controller.verifyRegisterOtp);
 router.post("/resend-register-otp", controller.resendRegisterOtp);
-router.post("/login", writeActivityLog("LOGIN"), controller.login);
+router.post("/login", controller.login);
 router.post("/refresh-token", controller.refresh);
 router.post("/forgot-password", controller.forgotPassword);
 router.post("/resend-forgot-password-otp", controller.resendForgotPasswordOtp);
 router.post("/reset-password", controller.resetPassword);
-router.post("/logout", authenticate, writeActivityLog("LOGOUT"), controller.logout);
+router.post("/logout", authenticate, controller.logout);
 router.patch("/change-password", authenticate, controller.changePassword);
 router.get("/me", authenticate, controller.me);
 
