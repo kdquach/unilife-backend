@@ -1,4 +1,6 @@
 const Order = require("../order/order.model");
+const OrderItem = require("../orderItem/orderItem.model");
+const Food = require("../food/food.model");
 
 const getRevenueReport = async (query = {}) => {
 
@@ -465,8 +467,136 @@ const getOrderStatistics = async (query = {}) => {
   };
 };
 
+const getPopularFoodReport = async (query = {}) => {
+  const type = query.type || "daily";
+
+  const match = {};
+
+  // ===== Validate =====
+
+  if (type === "daily") {
+    if (!query.month || !query.year) {
+      const err = new Error("Month and year are required.");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    match.createdAt = {
+      $gte: new Date(Number(query.year), Number(query.month) - 1, 1),
+      $lte: new Date(
+        Number(query.year),
+        Number(query.month),
+        0,
+        23,
+        59,
+        59,
+        999
+      ),
+    };
+  }
+
+  if (type === "monthly") {
+    if (!query.year) {
+      const err = new Error("Year is required.");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    match.createdAt = {
+      $gte: new Date(Number(query.year), 0, 1),
+      $lte: new Date(
+        Number(query.year),
+        11,
+        31,
+        23,
+        59,
+        59,
+        999
+      ),
+    };
+  }
+
+  if (query.from || query.to) {
+    match.createdAt = match.createdAt || {};
+
+    if (query.from) {
+      match.createdAt.$gte = new Date(query.from);
+    }
+
+    if (query.to) {
+      const end = new Date(query.to);
+      end.setHours(23, 59, 59, 999);
+      match.createdAt.$lte = end;
+    }
+  }
+
+  const foods = await OrderItem.aggregate([
+    {
+      $lookup: {
+        from: "orders",
+        localField: "orderId",
+        foreignField: "_id",
+        as: "order",
+      },
+    },
+    {
+      $unwind: "$order",
+    },
+    {
+      $match: {
+        ...Object.keys(match).length && {
+          "order.createdAt": match.createdAt,
+        },
+        "order.status": {
+          $in: ["COMPLETED", "READY"],
+        },
+      },
+    },
+    {
+      $lookup: {
+        from: "foods",
+        localField: "foodId",
+        foreignField: "_id",
+        as: "food",
+      },
+    },
+    {
+      $unwind: "$food",
+    },
+    {
+      $group: {
+        _id: "$food._id",
+        foodName: {
+          $first: "$food.name",
+        },
+        totalSold: {
+          $sum: "$quantity",
+        },
+        revenue: {
+          $sum: "$subtotal",
+        },
+      },
+    },
+    {
+      $sort: {
+        totalSold: -1,
+      },
+    },
+  ]);
+
+  return {
+    summary: {
+      totalFoods: foods.length,
+      mostPopularFood: foods[0]?.foodName || null,
+      highestSold: foods[0]?.totalSold || 0,
+    },
+    foods,
+  };
+};
+
 module.exports = {
   getRevenueReport,
   getPeakHourReport,
   getOrderStatistics,
+  getPopularFoodReport,
 };

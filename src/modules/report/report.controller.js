@@ -32,8 +32,20 @@ const getOrderStatistics = asyncHandler(async (req, res) => {
   );
 });
 
+
+const getPopularFoodReport = asyncHandler(async (req, res) => {
+  const result = await service.getPopularFoodReport(req.query);
+
+  return success(
+    res,
+    result,
+    "Popular food report retrieved successfully"
+  );
+});
+
 module.exports = {
   getRevenueReport,
   getPeakHourReport,
   getOrderStatistics,
+  getPopularFoodReport,
 };

@@ -14,10 +14,20 @@ router.get(
   authorize(ROLES.ADMIN, ROLES.MANAGER),
   controller.getRevenueReport,
 );
-router.get("/peak-hour", controller.getPeakHourReport);
+router.get(
+  "/peak-hour",
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
+  controller.getPeakHourReport,
+);
 router.get(
   "/order-statistics",
-  controller.getOrderStatistics
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
+  controller.getOrderStatistics,
+);
+router.get(
+  "/popular-food",
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
+  controller.getPopularFoodReport,
 );
 
 module.exports = router;
