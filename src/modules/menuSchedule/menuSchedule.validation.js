@@ -23,6 +23,7 @@ const updateMenuScheduleSchema = Joi.object({
     .messages({
       "any.only": `"status" must be one of [DRAFT, PUBLISHED, CANCELLED, COMPLETED]`,
     }),
+  __v: Joi.number().optional(),
 })
   // Ban any other keys from req.body (Mass Assignment Defense Layer 1)
   .unknown(false)

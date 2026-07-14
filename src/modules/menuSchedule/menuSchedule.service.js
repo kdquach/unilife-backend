@@ -202,7 +202,6 @@ const updateById = async (id, data, user) => {
     throw error;
   }
   const expectedStatus = baseSchedule.status;
-  const expectedVersion = baseSchedule.__v;
 
   try {
     await session.withTransaction(async () => {
@@ -214,7 +213,7 @@ const updateById = async (id, data, user) => {
       }
 
       // Optimistic Concurrency Check
-      if (schedule.__v !== expectedVersion) {
+      if (data.__v !== undefined && schedule.__v !== data.__v) {
         const error = new Error("Data was modified by another user. Please retry.");
         error.statusCode = 409;
         throw error;
@@ -228,7 +227,7 @@ const updateById = async (id, data, user) => {
         throw error;
       }
 
-      const hasReservedItems = schedule.items && schedule.items.some(i => i.reservedCount > 0);
+      const hasInteractedItems = schedule.items && schedule.items.some(i => i.reservedCount > 0 || i.servedCount > 0);
 
       if (allowedUpdates.status && allowedUpdates.status !== schedule.status) {
         const allowed = ALLOWED_TRANSITIONS[schedule.status] || [];
@@ -238,8 +237,8 @@ const updateById = async (id, data, user) => {
           throw error;
         }
 
-        if (allowedUpdates.status === "DRAFT" && hasReservedItems) {
-          const error = new Error("Cannot downgrade to DRAFT because some items are already reserved");
+        if (allowedUpdates.status === "DRAFT" && hasInteractedItems) {
+          const error = new Error("Cannot downgrade to DRAFT because some items are already purchased");
           error.statusCode = 400;
           throw error;
         }
@@ -271,8 +270,8 @@ const updateById = async (id, data, user) => {
           error.statusCode = 400;
           throw error;
         }
-        if (newStart.getTime() !== scheduleStart.getTime() && hasReservedItems) {
-          const error = new Error("Cannot change date because some items are already reserved");
+        if (newStart.getTime() !== scheduleStart.getTime() && hasInteractedItems) {
+          const error = new Error("Cannot change date because some items are already purchased");
           error.statusCode = 400;
           throw error;
         }
@@ -284,13 +283,15 @@ const updateById = async (id, data, user) => {
       }
 
       if (allowedUpdates.status === "CANCELLED" && schedule.status !== "CANCELLED") {
-        // Handle Cancel all items and refund
+        const isFutureSchedule = scheduleStart > todayStart;
+
+        // Handle Cancel all items and refund (only if it's a future schedule)
         if (schedule.items) {
           for (const item of schedule.items) {
             if (item.isActive) {
               const minRequired = item.reservedCount + item.servedCount;
               const diff = minRequired - item.maxServing;
-              if (diff < 0) {
+              if (diff < 0 && isFutureSchedule) {
                 // Must use user parameter correctly for ActivityLog
                 await internalPerformRefund(item, Math.abs(diff), user, session);
               }

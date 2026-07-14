@@ -240,6 +240,14 @@ const updateById = async (id, data, user) => {
         throw error;
       }
 
+      if (data.__v !== undefined && item.__v !== data.__v) {
+        const error = new Error("Data was modified by another user. Please retry.");
+        error.statusCode = 409;
+        throw error;
+      }
+
+      let isFutureSchedule = false;
+
       if (item.menuScheduleId) {
         if (item.menuScheduleId.status === "CANCELLED" || item.menuScheduleId.status === "COMPLETED") {
           const error = new Error(`Cannot modify items in a ${item.menuScheduleId.status} menu schedule`);
@@ -254,6 +262,8 @@ const updateById = async (id, data, user) => {
           error.statusCode = 400;
           throw error;
         }
+        
+        isFutureSchedule = scheduleStart > todayStart;
 
         // Lock the schedule document to prevent write skew / race conditions with schedule cancellation
         item.menuScheduleId.increment();
@@ -287,7 +297,7 @@ const updateById = async (id, data, user) => {
 
       if (diff > 0) {
         await performIncrease(item, diff, user, session);
-      } else if (diff < 0) {
+      } else if (diff < 0 && isFutureSchedule) {
         await performRefund(item, Math.abs(diff), user, session);
       }
 

@@ -31,6 +31,7 @@ const updateMenuScheduleItemSchema = Joi.object({
     "number.min": `"maxServing" cannot be negative`,
   }),
   isActive: Joi.boolean().optional(),
+  __v: Joi.number().optional(),
 })
   .unknown(false)
   .messages({
