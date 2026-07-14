@@ -61,4 +61,57 @@ describe("Menu Schedule Edge Cases", () => {
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/Cannot add items to a CANCELLED menu schedule/i);
   });
+
+  it("should prevent creating a menu schedule for a past date", async () => {
+    const pastDate = new Date();
+    pastDate.setDate(pastDate.getDate() - 5);
+
+    const res = await request(app)
+      .post("/api/v1/menu-schedules")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ date: pastDate, status: "DRAFT" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Cannot create menu schedule for past dates/i);
+  });
+
+  it("should prevent changing a menu schedule's date to a past date", async () => {
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 10);
+    const ms = await MenuSchedule.create({ date: futureDate, status: "DRAFT", createdBy: null });
+
+    const pastDate = new Date();
+    pastDate.setDate(pastDate.getDate() - 5);
+
+    const res = await request(app)
+      .patch(`/api/v1/menu-schedules/${ms._id}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ date: pastDate });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Cannot change date to a past date/i);
+  });
+
+  it("should prevent modifying an existing item inside a CANCELLED schedule", async () => {
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 10);
+    const ms = await MenuSchedule.create({ date: futureDate, status: "CANCELLED", createdBy: null });
+    
+    // Bypass service to create item directly
+    const constItem = await mongoose.model("MenuScheduleItem").create({
+      menuScheduleId: ms._id,
+      foodId,
+      maxServing: 50,
+      remainingCount: 50,
+      isActive: false
+    });
+
+    const res = await request(app)
+      .patch(`/api/v1/menu-schedule-items/${constItem._id}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ isActive: true });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Cannot modify items in a CANCELLED menu schedule/i);
+  });
 });

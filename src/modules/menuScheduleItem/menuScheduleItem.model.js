@@ -14,10 +14,10 @@ const menuScheduleItemSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    maxServing: { type: Number, default: 0 },
-    reservedCount: { type: Number, default: 0 },
-    servedCount: { type: Number, default: 0 },
-    remainingCount: { type: Number, default: 0 },
+    maxServing: { type: Number, default: 0, min: 0 },
+    reservedCount: { type: Number, default: 0, min: 0 },
+    servedCount: { type: Number, default: 0, min: 0 },
+    remainingCount: { type: Number, default: 0, min: 0 },
     isActive: { type: Boolean, default: true, index: true },
     deductedBatches: [
       {

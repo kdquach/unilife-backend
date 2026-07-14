@@ -9,33 +9,13 @@ const { getVietnamDayRange } = require("../../utils/date.util");
 
 const dateOnly = (value) => {
   if (Array.isArray(value)) value = value[0];
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
   return String(value || "").slice(0, 10);
 };
 
 const create = async (data, user) => {
   const { menuScheduleId, foodId, maxServing } = data;
-
-  const schedule = await MenuSchedule.findById(menuScheduleId);
-  if (!schedule) {
-    const error = new Error("Menu schedule not found");
-    error.statusCode = 400;
-    throw error;
-  }
   
-  const { start: todayStart } = getVietnamDayRange(dateOnly(new Date()));
-  const scheduleStart = getVietnamDayRange(dateOnly(schedule.date)).start;
-  if (scheduleStart < todayStart) {
-    const error = new Error("Cannot add items to a frozen/past menu schedule");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (schedule.status === "CANCELLED" || schedule.status === "COMPLETED") {
-    const error = new Error(`Cannot add items to a ${schedule.status} menu schedule`);
-    error.statusCode = 400;
-    throw error;
-  }
-
   const food = await Food.findById(foodId);
   if (!food) {
     const error = new Error("Food not found");
@@ -48,6 +28,31 @@ const create = async (data, user) => {
 
   try {
     await session.withTransaction(async () => {
+      const schedule = await MenuSchedule.findById(menuScheduleId).session(session);
+      if (!schedule) {
+        const error = new Error("Menu schedule not found");
+        error.statusCode = 400;
+        throw error;
+      }
+      
+      const { start: todayStart } = getVietnamDayRange();
+      const scheduleStart = getVietnamDayRange(schedule.date).start;
+      if (scheduleStart < todayStart) {
+        const error = new Error("Cannot add items to a frozen/past menu schedule");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      if (schedule.status === "CANCELLED" || schedule.status === "COMPLETED") {
+        const error = new Error(`Cannot add items to a ${schedule.status} menu schedule`);
+        error.statusCode = 400;
+        throw error;
+      }
+
+      // Lock the schedule document to prevent write skew / race conditions with schedule cancellation
+      schedule.increment();
+      await schedule.save({ session });
+
       const recipe = await FoodIngredient.find({ foodId }).session(session);
       const recipeSnapshot = recipe.map((r) => ({
         ingredientId: r.ingredientId,
@@ -236,13 +241,23 @@ const updateById = async (id, data, user) => {
       }
 
       if (item.menuScheduleId) {
-        const { start: todayStart } = getVietnamDayRange(dateOnly(new Date()));
-        const scheduleStart = getVietnamDayRange(dateOnly(item.menuScheduleId.date)).start;
+        if (item.menuScheduleId.status === "CANCELLED" || item.menuScheduleId.status === "COMPLETED") {
+          const error = new Error(`Cannot modify items in a ${item.menuScheduleId.status} menu schedule`);
+          error.statusCode = 400;
+          throw error;
+        }
+
+        const { start: todayStart } = getVietnamDayRange();
+        const scheduleStart = getVietnamDayRange(item.menuScheduleId.date).start;
         if (scheduleStart < todayStart) {
           const error = new Error("Cannot modify a frozen/past menu schedule item");
           error.statusCode = 400;
           throw error;
         }
+
+        // Lock the schedule document to prevent write skew / race conditions with schedule cancellation
+        item.menuScheduleId.increment();
+        await item.menuScheduleId.save({ session });
       }
 
       let newMaxServing = item.maxServing;

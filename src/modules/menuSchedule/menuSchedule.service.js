@@ -14,6 +14,7 @@ const ALLOWED_TRANSITIONS = {
 
 const dateOnly = (value) => {
   if (Array.isArray(value)) value = value[0];
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
   return String(value || "").slice(0, 10);
 };
 
@@ -36,15 +37,30 @@ const create = async (data, user) => {
     throw error;
   }
   try {
+    const { start: todayStart } = getVietnamDayRange();
     const normalizedDate = getVietnamDayRange(dateOnly(data.date)).start;
+    
+
+    
+    if (normalizedDate < todayStart) {
+      const error = new Error("Cannot create menu schedule for past dates");
+      error.statusCode = 400;
+      throw error;
+    }
+
     return await MenuSchedule.create({
       ...data,
       date: normalizedDate,
       createdBy: user ? user.userId : null,
     });
   } catch (err) {
-    if (err.name === "ValidationError" || err.code === 11000) {
-      const error = new Error(err.message || "Invalid data or duplicate date");
+    if (err.name === "ValidationError") {
+      const error = new Error(err.message || "Invalid data");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (err.code === 11000) {
+      const error = new Error("A menu schedule already exists for this date");
       error.statusCode = 400;
       throw error;
     }
@@ -204,8 +220,8 @@ const updateById = async (id, data, user) => {
         throw error;
       }
 
-      const { start: todayStart } = getVietnamDayRange(dateOnly(new Date()));
-      const scheduleStart = getVietnamDayRange(dateOnly(schedule.date)).start;
+      const { start: todayStart } = getVietnamDayRange();
+      const scheduleStart = getVietnamDayRange(schedule.date).start;
       if (scheduleStart < todayStart) {
         const error = new Error("Cannot modify a frozen/past menu schedule");
         error.statusCode = 400;
@@ -227,10 +243,34 @@ const updateById = async (id, data, user) => {
           error.statusCode = 400;
           throw error;
         }
+
+        // 1. Cannot PUBLISH an empty menu schedule
+        if (allowedUpdates.status === "PUBLISHED") {
+          const activeItems = schedule.items ? schedule.items.filter(i => i.isActive) : [];
+          if (activeItems.length === 0) {
+            const error = new Error("Cannot publish a menu schedule without any active items");
+            error.statusCode = 400;
+            throw error;
+          }
+        }
+
+        // 2. Cannot COMPLETE a future menu schedule manually
+        if (allowedUpdates.status === "COMPLETED") {
+          if (scheduleStart > todayStart) {
+            const error = new Error("Cannot complete a future menu schedule");
+            error.statusCode = 400;
+            throw error;
+          }
+        }
       }
 
       if (allowedUpdates.date) {
         const newStart = getVietnamDayRange(dateOnly(allowedUpdates.date)).start;
+        if (newStart < todayStart) {
+          const error = new Error("Cannot change date to a past date");
+          error.statusCode = 400;
+          throw error;
+        }
         if (newStart.getTime() !== scheduleStart.getTime() && hasReservedItems) {
           const error = new Error("Cannot change date because some items are already reserved");
           error.statusCode = 400;
@@ -275,6 +315,11 @@ const updateById = async (id, data, user) => {
         if (err.name === "VersionError") {
           const error = new Error("Data was modified by another user. Please retry.");
           error.statusCode = 409;
+          throw error;
+        }
+        if (err.code === 11000) {
+          const error = new Error("A menu schedule already exists for the selected date");
+          error.statusCode = 400;
           throw error;
         }
         throw err;

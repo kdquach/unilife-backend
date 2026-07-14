@@ -4,6 +4,8 @@ const { authenticate, authorize } = require("../../middlewares/auth.middleware")
 const ROLES = require("../../constants/roles.constant");
 
 const router = express.Router();
+const { validate } = require("../../middlewares/validate.middleware");
+const { createMenuScheduleItemSchema, updateMenuScheduleItemSchema } = require("./menuScheduleItem.validation");
 
 // Public routes (customers can browse items)
 router.get("/", controller.list);
@@ -23,8 +25,8 @@ const createItemLimiter = rateLimit({
 // Protected routes (require login for manage/edit)
 router.use(authenticate);
 router.use(authorize(ROLES.MANAGER, ROLES.ADMIN));
-router.post("/", createItemLimiter, controller.create);
-router.patch("/:id", controller.updateById);
+router.post("/", createItemLimiter, validate(createMenuScheduleItemSchema), controller.create);
+router.patch("/:id", validate(updateMenuScheduleItemSchema), controller.updateById);
 router.delete("/:id", controller.deleteById);
 
 module.exports = router;

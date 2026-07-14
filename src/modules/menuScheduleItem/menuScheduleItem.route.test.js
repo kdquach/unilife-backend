@@ -14,9 +14,11 @@ const jwt = require("jsonwebtoken");
 
 process.env.JWT_ACCESS_SECRET = "test-secret-for-jwt";
 
+const { errorHandler } = require("../../middlewares/error.middleware");
 const app = express();
 app.use(express.json());
 app.use("/api/v1", routes);
+app.use(errorHandler);
 
 
 
@@ -82,12 +84,10 @@ describe("MenuScheduleItem Routes (POST, PATCH, DELETE)", () => {
       const res = await request(app).post("/api/v1/menu-schedule-items").set("Authorization", `Bearer ${managerToken}`).send({ menuScheduleId: schedule._id, foodId: food._id, maxServing: 10 });
       expect(res.status).toBe(400); // 400 or 409
     });
-    it("should ignore Mass Assignment and set initial inventory properly", async () => {
+    it("should reject Mass Assignment with 422 Unprocessable Entity", async () => {
       const res = await request(app).post("/api/v1/menu-schedule-items").set("Authorization", `Bearer ${managerToken}`).send({ menuScheduleId: schedule._id, foodId: food._id, maxServing: 10, remainingCount: 999, reservedCount: 50 });
-      expect(res.status).toBe(201);
-      expect(res.body.data.maxServing).toBe(10);
-      expect(res.body.data.remainingCount).toBe(10);
-      expect(res.body.data.reservedCount).toBe(0);
+      expect(res.status).toBe(422);
+      expect(res.body.message).toContain("Mass Assignment");
     });
   });
 

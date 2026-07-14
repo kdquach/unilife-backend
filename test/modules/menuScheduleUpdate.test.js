@@ -193,6 +193,15 @@ describe("Menu Schedule Update API", () => {
 
     it("Test Case 8: Accept valid status transitions", async () => {
       const ms = await MenuSchedule.create({ date: new Date(Date.now() + 86400000), createdBy: adminId, status: "DRAFT" });
+      await MenuScheduleItem.create({
+        menuScheduleId: ms._id,
+        foodId,
+        maxServing: 10,
+        remainingCount: 10,
+        reservedCount: 0,
+        servedCount: 0,
+        isActive: true
+      });
       
       // DRAFT -> PUBLISHED
       const res = await request(app)
@@ -270,6 +279,15 @@ describe("Menu Schedule Update API", () => {
   describe("E. Concurrency", () => {
     it("Test Case 11: Concurrent Updates (Optimistic Concurrency Control)", async () => {
       const ms = await MenuSchedule.create({ date: new Date(Date.now() + 86400000), createdBy: adminId, status: "DRAFT" });
+      await MenuScheduleItem.create({
+        menuScheduleId: ms._id,
+        foodId,
+        maxServing: 10,
+        remainingCount: 10,
+        reservedCount: 0,
+        servedCount: 0,
+        isActive: true
+      });
       
       // Fire 2 update requests in parallel without awaiting
       const resPromise1 = request(app)
