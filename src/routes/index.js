@@ -58,5 +58,6 @@ router.use(
   require("../modules/ingredientTransaction/ingredientTransaction.route"),
 );
 router.use("/suppliers", require("../modules/supplier/supplier.route"));
+router.use("/reports", require("../modules/report/report.route"));
 
 module.exports = router;
