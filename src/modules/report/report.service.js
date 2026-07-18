@@ -3,7 +3,6 @@ const OrderItem = require("../orderItem/orderItem.model");
 const Food = require("../food/food.model");
 
 const getRevenueReport = async (query = {}) => {
-
   const match = {
     paymentStatus: "PAID",
     status: { $ne: "CANCELLED" },
@@ -11,7 +10,6 @@ const getRevenueReport = async (query = {}) => {
 
   // from / to
   if (query.from || query.to) {
-
     match.createdAt = {};
 
     if (query.from) {
@@ -32,9 +30,7 @@ const getRevenueReport = async (query = {}) => {
   let groupId;
 
   switch (query.type) {
-
     case "monthly":
-
       groupId = {
         $dateToString: {
           format: "%Y-%m",
@@ -45,7 +41,6 @@ const getRevenueReport = async (query = {}) => {
       break;
 
     case "yearly":
-
       groupId = {
         $dateToString: {
           format: "%Y",
@@ -56,7 +51,6 @@ const getRevenueReport = async (query = {}) => {
       break;
 
     default:
-
       groupId = {
         $dateToString: {
           format: "%Y-%m-%d",
@@ -112,26 +106,18 @@ const getRevenueReport = async (query = {}) => {
     },
   ]);
 
-  const totalRevenue = summary.length
-    ? summary[0].totalRevenue
-    : 0;
+  const totalRevenue = summary.length ? summary[0].totalRevenue : 0;
 
-  const totalOrders = summary.length
-    ? summary[0].totalOrders
-    : 0;
+  const totalOrders = summary.length ? summary[0].totalOrders : 0;
 
   return {
-
     summary: {
-
       totalRevenue,
 
       totalOrders,
 
       averageOrderValue:
-        totalOrders === 0
-          ? 0
-          : Math.round(totalRevenue / totalOrders),
+        totalOrders === 0 ? 0 : Math.round(totalRevenue / totalOrders),
     },
 
     revenue,
@@ -139,7 +125,6 @@ const getRevenueReport = async (query = {}) => {
 };
 
 const getPeakHourReport = async (query = {}) => {
-
   const type = query.type || "daily";
 
   const match = {
@@ -150,18 +135,13 @@ const getPeakHourReport = async (query = {}) => {
   // ===== Validation =====
 
   if (type === "daily") {
-
     if (!query.month || !query.year) {
       const err = new Error("Month and year are required.");
       err.statusCode = 400;
       throw err;
     }
 
-    const start = new Date(
-      Number(query.year),
-      Number(query.month) - 1,
-      1
-    );
+    const start = new Date(Number(query.year), Number(query.month) - 1, 1);
 
     const end = new Date(
       Number(query.year),
@@ -170,7 +150,7 @@ const getPeakHourReport = async (query = {}) => {
       23,
       59,
       59,
-      999
+      999,
     );
 
     match.createdAt = {
@@ -180,121 +160,96 @@ const getPeakHourReport = async (query = {}) => {
   }
 
   if (type === "monthly") {
-
     if (!query.year) {
       const err = new Error("Year is required.");
       err.statusCode = 400;
       throw err;
     }
 
-    const start = new Date(Number(query.year),0,1);
+    const start = new Date(Number(query.year), 0, 1);
 
-    const end = new Date(
-      Number(query.year),
-      11,
-      31,
-      23,
-      59,
-      59,
-      999
-    );
+    const end = new Date(Number(query.year), 11, 31, 23, 59, 59, 999);
 
     match.createdAt = {
-      $gte:start,
-      $lte:end,
+      $gte: start,
+      $lte: end,
     };
   }
 
   // from to
 
-  if(query.from || query.to){
+  if (query.from || query.to) {
+    match.createdAt = match.createdAt || {};
 
-      match.createdAt = match.createdAt || {};
+    if (query.from) {
+      match.createdAt.$gte = new Date(query.from);
+    }
 
-      if(query.from){
-          match.createdAt.$gte = new Date(query.from);
-      }
-
-      if(query.to){
-          const end = new Date(query.to);
-          end.setHours(23,59,59,999);
-          match.createdAt.$lte = end;
-      }
+    if (query.to) {
+      const end = new Date(query.to);
+      end.setHours(23, 59, 59, 999);
+      match.createdAt.$lte = end;
+    }
   }
 
   //-------------------------------------------------
 
   const peakHours = await Order.aggregate([
+    {
+      $match: match,
+    },
 
-      {
-          $match:match
+    {
+      $group: {
+        _id: {
+          hour: {
+            $hour: "$createdAt",
+          },
+        },
+
+        orders: {
+          $sum: 1,
+        },
+
+        revenue: {
+          $sum: "$totalPrice",
+        },
       },
+    },
 
-      {
-          $group:{
-
-              _id:{
-                  hour:{
-                      $hour:"$createdAt"
-                  }
-              },
-
-              orders:{
-                  $sum:1
-              },
-
-              revenue:{
-                  $sum:"$totalPrice"
-              }
-
-          }
-
+    {
+      $project: {
+        _id: 0,
+        hour: "$_id.hour",
+        orders: 1,
+        revenue: 1,
       },
+    },
 
-      {
-          $project:{
-              _id:0,
-              hour:"$_id.hour",
-              orders:1,
-              revenue:1
-          }
+    {
+      $sort: {
+        hour: 1,
       },
-
-      {
-          $sort:{
-              hour:1
-          }
-      }
-
+    },
   ]);
 
   let peakHour = null;
 
-  if(peakHours.length){
-
-      peakHour = peakHours.reduce((a,b)=>
-
-          a.orders>b.orders?a:b
-
-      );
+  if (peakHours.length) {
+    peakHour = peakHours.reduce((a, b) => (a.orders > b.orders ? a : b));
   }
 
-  return{
+  return {
+    summary: {
+      peakHour: peakHour?.hour ?? null,
 
-      summary:{
+      maxOrders: peakHour?.orders ?? 0,
 
-          peakHour: peakHour?.hour ?? null,
+      revenueAtPeakHour: peakHour?.revenue ?? 0,
+    },
 
-          maxOrders: peakHour?.orders ?? 0,
-
-          revenueAtPeakHour: peakHour?.revenue ?? 0
-
-      },
-
-      peakHours
-
+    peakHours,
   };
-
 };
 
 const getOrderStatistics = async (query = {}) => {
@@ -320,7 +275,7 @@ const getOrderStatistics = async (query = {}) => {
         23,
         59,
         59,
-        999
+        999,
       ),
     };
   }
@@ -334,15 +289,7 @@ const getOrderStatistics = async (query = {}) => {
 
     match.createdAt = {
       $gte: new Date(Number(query.year), 0, 1),
-      $lte: new Date(
-        Number(query.year),
-        11,
-        31,
-        23,
-        59,
-        59,
-        999
-      ),
+      $lte: new Date(Number(query.year), 11, 31, 23, 59, 59, 999),
     };
   }
 
@@ -468,11 +415,16 @@ const getOrderStatistics = async (query = {}) => {
 };
 
 const getPopularFoodReport = async (query = {}) => {
-  const type = query.type || "daily";
+  const type = query.type || "yearly";
 
-  const match = {};
+  const match = {
+    "order.paymentStatus": "PAID",
+    "order.status": { $ne: "CANCELLED" },
+  };
 
-  // ===== Validate =====
+  //----------------------------------------
+  // Daily / Monthly / Yearly
+  //----------------------------------------
 
   if (type === "daily") {
     if (!query.month || !query.year) {
@@ -481,7 +433,7 @@ const getPopularFoodReport = async (query = {}) => {
       throw err;
     }
 
-    match.createdAt = {
+    match["order.createdAt"] = {
       $gte: new Date(Number(query.year), Number(query.month) - 1, 1),
       $lte: new Date(
         Number(query.year),
@@ -493,16 +445,14 @@ const getPopularFoodReport = async (query = {}) => {
         999
       ),
     };
-  }
-
-  if (type === "monthly") {
+  } else if (type === "monthly") {
     if (!query.year) {
       const err = new Error("Year is required.");
       err.statusCode = 400;
       throw err;
     }
 
-    match.createdAt = {
+    match["order.createdAt"] = {
       $gte: new Date(Number(query.year), 0, 1),
       $lte: new Date(
         Number(query.year),
@@ -516,19 +466,59 @@ const getPopularFoodReport = async (query = {}) => {
     };
   }
 
+  //----------------------------------------
+  // From / To
+  //----------------------------------------
+
   if (query.from || query.to) {
-    match.createdAt = match.createdAt || {};
+    match["order.createdAt"] = match["order.createdAt"] || {};
 
     if (query.from) {
-      match.createdAt.$gte = new Date(query.from);
+      match["order.createdAt"].$gte = new Date(query.from);
     }
 
     if (query.to) {
       const end = new Date(query.to);
       end.setHours(23, 59, 59, 999);
-      match.createdAt.$lte = end;
+      match["order.createdAt"].$lte = end;
     }
   }
+
+  //----------------------------------------
+  // Summary
+  //----------------------------------------
+
+  const summary = await OrderItem.aggregate([
+    {
+      $lookup: {
+        from: "orders",
+        localField: "orderId",
+        foreignField: "_id",
+        as: "order",
+      },
+    },
+    {
+      $unwind: "$order",
+    },
+    {
+      $match: match,
+    },
+    {
+      $group: {
+        _id: null,
+        totalSold: {
+          $sum: "$quantity",
+        },
+        totalRevenue: {
+          $sum: "$subtotal",
+        },
+      },
+    },
+  ]);
+
+  //----------------------------------------
+  // Popular foods
+  //----------------------------------------
 
   const foods = await OrderItem.aggregate([
     {
@@ -543,14 +533,7 @@ const getPopularFoodReport = async (query = {}) => {
       $unwind: "$order",
     },
     {
-      $match: {
-        ...Object.keys(match).length && {
-          "order.createdAt": match.createdAt,
-        },
-        "order.status": {
-          $in: ["COMPLETED", "READY"],
-        },
-      },
+      $match: match,
     },
     {
       $lookup: {
@@ -584,13 +567,28 @@ const getPopularFoodReport = async (query = {}) => {
     },
   ]);
 
+  const totalSold = summary.length ? summary[0].totalSold : 0;
+  const totalRevenue = summary.length ? summary[0].totalRevenue : 0;
+
   return {
     summary: {
       totalFoods: foods.length,
-      mostPopularFood: foods[0]?.foodName || null,
-      highestSold: foods[0]?.totalSold || 0,
+      totalSold,
+      totalRevenue,
+      mostPopularFood: foods.length ? foods[0].foodName : null,
+      highestSold: foods.length ? foods[0].totalSold : 0,
     },
-    foods,
+
+    foods: foods.map((item) => ({
+      foodId: item._id,
+      foodName: item.foodName,
+      totalSold: item.totalSold,
+      revenue: item.revenue,
+      percentage:
+        totalSold === 0
+          ? 0
+          : Number(((item.totalSold / totalSold) * 100).toFixed(2)),
+    })),
   };
 };
 
