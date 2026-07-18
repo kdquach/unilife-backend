@@ -253,11 +253,13 @@ const getPeakHourReport = async (query = {}) => {
 };
 
 const getOrderStatistics = async (query = {}) => {
-  const type = query.type || "daily";
+  const type = query.type || "yearly";
 
   const match = {};
 
-  // ===== Validate =====
+  //----------------------------------------
+  // Daily
+  //----------------------------------------
 
   if (type === "daily") {
     if (!query.month || !query.year) {
@@ -275,12 +277,16 @@ const getOrderStatistics = async (query = {}) => {
         23,
         59,
         59,
-        999,
+        999
       ),
     };
   }
 
-  if (type === "monthly") {
+  //----------------------------------------
+  // Monthly
+  //----------------------------------------
+
+  else if (type === "monthly") {
     if (!query.year) {
       const err = new Error("Year is required.");
       err.statusCode = 400;
@@ -289,11 +295,21 @@ const getOrderStatistics = async (query = {}) => {
 
     match.createdAt = {
       $gte: new Date(Number(query.year), 0, 1),
-      $lte: new Date(Number(query.year), 11, 31, 23, 59, 59, 999),
+      $lte: new Date(
+        Number(query.year),
+        11,
+        31,
+        23,
+        59,
+        59,
+        999
+      ),
     };
   }
 
-  // yearly => không bắt buộc month/year
+  //----------------------------------------
+  // From / To
+  //----------------------------------------
 
   if (query.from || query.to) {
     match.createdAt = match.createdAt || {};
@@ -321,9 +337,7 @@ const getOrderStatistics = async (query = {}) => {
       $group: {
         _id: null,
 
-        totalOrders: {
-          $sum: 1,
-        },
+        totalOrders: { $sum: 1 },
 
         pending: {
           $sum: {
@@ -359,7 +373,7 @@ const getOrderStatistics = async (query = {}) => {
   ]);
 
   //----------------------------------------
-  // Statistics by status
+  // Order Status Distribution
   //----------------------------------------
 
   const statistics = await Order.aggregate([
@@ -382,13 +396,13 @@ const getOrderStatistics = async (query = {}) => {
   ]);
 
   //----------------------------------------
-  // Add percentage
+  // Percentage
   //----------------------------------------
 
   const totalOrders = summary[0]?.totalOrders || 0;
 
   const statisticsWithPercentage = statistics.map((item) => ({
-    _id: item._id,
+    status: item._id,
     orders: item.orders,
     percentage:
       totalOrders === 0
