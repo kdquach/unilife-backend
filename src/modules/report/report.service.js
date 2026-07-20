@@ -125,14 +125,16 @@ const getRevenueReport = async (query = {}) => {
 };
 
 const getPeakHourReport = async (query = {}) => {
-  const type = query.type || "daily";
+  const type = query.type || "yearly";
 
   const match = {
     paymentStatus: "PAID",
     status: { $ne: "CANCELLED" },
   };
 
-  // ===== Validation =====
+  //----------------------------------------
+  // Daily
+  //----------------------------------------
 
   if (type === "daily") {
     if (!query.month || !query.year) {
@@ -141,42 +143,48 @@ const getPeakHourReport = async (query = {}) => {
       throw err;
     }
 
-    const start = new Date(Number(query.year), Number(query.month) - 1, 1);
-
-    const end = new Date(
-      Number(query.year),
-      Number(query.month),
-      0,
-      23,
-      59,
-      59,
-      999,
-    );
-
     match.createdAt = {
-      $gte: start,
-      $lte: end,
+      $gte: new Date(Number(query.year), Number(query.month) - 1, 1),
+      $lte: new Date(
+        Number(query.year),
+        Number(query.month),
+        0,
+        23,
+        59,
+        59,
+        999
+      ),
     };
   }
 
-  if (type === "monthly") {
+  //----------------------------------------
+  // Monthly
+  //----------------------------------------
+
+  else if (type === "monthly") {
     if (!query.year) {
       const err = new Error("Year is required.");
       err.statusCode = 400;
       throw err;
     }
 
-    const start = new Date(Number(query.year), 0, 1);
-
-    const end = new Date(Number(query.year), 11, 31, 23, 59, 59, 999);
-
     match.createdAt = {
-      $gte: start,
-      $lte: end,
+      $gte: new Date(Number(query.year), 0, 1),
+      $lte: new Date(
+        Number(query.year),
+        11,
+        31,
+        23,
+        59,
+        59,
+        999
+      ),
     };
   }
 
-  // from to
+  //----------------------------------------
+  // From / To
+  //----------------------------------------
 
   if (query.from || query.to) {
     match.createdAt = match.createdAt || {};
@@ -192,13 +200,14 @@ const getPeakHourReport = async (query = {}) => {
     }
   }
 
-  //-------------------------------------------------
+  //----------------------------------------
+  // Peak hours
+  //----------------------------------------
 
   const peakHours = await Order.aggregate([
     {
       $match: match,
     },
-
     {
       $group: {
         _id: {
@@ -206,17 +215,14 @@ const getPeakHourReport = async (query = {}) => {
             $hour: "$createdAt",
           },
         },
-
         orders: {
           $sum: 1,
         },
-
         revenue: {
           $sum: "$totalPrice",
         },
       },
     },
-
     {
       $project: {
         _id: 0,
@@ -225,7 +231,6 @@ const getPeakHourReport = async (query = {}) => {
         revenue: 1,
       },
     },
-
     {
       $sort: {
         hour: 1,
@@ -233,18 +238,21 @@ const getPeakHourReport = async (query = {}) => {
     },
   ]);
 
-  let peakHour = null;
+  //----------------------------------------
+  // Summary
+  //----------------------------------------
 
-  if (peakHours.length) {
-    peakHour = peakHours.reduce((a, b) => (a.orders > b.orders ? a : b));
-  }
+  const peakHour =
+    peakHours.length > 0
+      ? peakHours.reduce((max, item) =>
+          item.orders > max.orders ? item : max
+        )
+      : null;
 
   return {
     summary: {
       peakHour: peakHour?.hour ?? null,
-
       maxOrders: peakHour?.orders ?? 0,
-
       revenueAtPeakHour: peakHour?.revenue ?? 0,
     },
 
