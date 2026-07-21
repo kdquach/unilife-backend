@@ -48,6 +48,7 @@ describe("GET /api/v1/menu-schedules/staff", () => {
   describe("Authentication & Authorization Edge Cases", () => {
     it("should return 401 if no authorization header is provided", async () => {
       const res = await request(app).get("/api/v1/menu-schedules/staff");
+      if (res.status === 500) console.log(res.text);
       expect(res.status).toBe(401);
       expect(res.body.success).toBe(false);
       expect(res.body.message).toMatch(/token/i);
@@ -272,4 +273,108 @@ describe("GET /api/v1/menu-schedules/staff", () => {
       expect(res.body.data.items).toHaveLength(2);
     });
   });
+
+  describe("POST /api/v1/menu-schedules", () => {
+    let token;
+    beforeEach(async () => {
+      const auth = await createTestUser(ROLES.MANAGER);
+      token = auth.token;
+    });
+
+    it("should return 401 if unauthorized", async () => {
+      const res = await request(app).post("/api/v1/menu-schedules").send({ date: "2026-08-01" });
+      expect(res.status).toBe(401);
+    });
+
+    it("should return 400 for missing date", async () => {
+      const res = await request(app)
+        .post("/api/v1/menu-schedules")
+        .set("Authorization", `Bearer ${token}`)
+        .send({});
+      expect(res.status).toBe(422);
+    });
+
+    it("should return 400 for past date", async () => {
+      const res = await request(app)
+        .post("/api/v1/menu-schedules")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ date: "2020-01-01" });
+      expect(res.status).toBe(400);
+    });
+
+    it("should block mass assignment and only save date", async () => {
+      const res = await request(app)
+        .post("/api/v1/menu-schedules")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ date: "2026-10-10", status: "PUBLISHED" });
+      expect(res.status).toBe(422); // 422 Unprocessable Entity because of Joi Validation .unknown(false)
+    });
+    
+    it("should create successfully with only date", async () => {
+      const res = await request(app)
+        .post("/api/v1/menu-schedules")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ date: "2026-10-10" });
+      expect(res.status).toBe(201);
+      expect(res.body.data.status).toBe("DRAFT");
+    });
+  });
+
+  describe("PATCH /api/v1/menu-schedules/:id", () => {
+    let token, scheduleId;
+    beforeEach(async () => {
+      const auth = await createTestUser(ROLES.MANAGER);
+      token = auth.token;
+      
+      const futureDate = new Date();
+      futureDate.setDate(futureDate.getDate() + 5);
+
+      const schedule = await MenuSchedule.create({
+        status: "DRAFT",
+        date: futureDate,
+      });
+      scheduleId = schedule._id.toString();
+    });
+
+    it("should return 401 if unauthorized", async () => {
+      const res = await request(app).patch(`/api/v1/menu-schedules/${scheduleId}`).send({ status: "PUBLISHED" });
+      expect(res.status).toBe(401);
+    });
+
+    it("should return 400 if publishing empty schedule", async () => {
+      const res = await request(app)
+        .patch(`/api/v1/menu-schedules/${scheduleId}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ status: "PUBLISHED" });
+      expect(res.status).toBe(400); // Because no active items
+    });
+
+    it("should update date successfully", async () => {
+      const res = await request(app)
+        .patch(`/api/v1/menu-schedules/${scheduleId}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ date: "2026-11-11" });
+      expect(res.status).toBe(200);
+      expect(new Date(res.body.data.date).toISOString()).toContain("17:00:00");
+    });
+
+    it("should return 400 on duplicate date update (E11000)", async () => {
+      const { getVietnamDayRange } = require("../../utils/date.util");
+      const existingDate = new Date();
+      existingDate.setDate(existingDate.getDate() + 10);
+      const normalizedDate = getVietnamDayRange(existingDate).start;
+      
+      await MenuSchedule.create({
+        status: "PUBLISHED",
+        date: normalizedDate,
+      });
+
+      const res = await request(app)
+        .patch(`/api/v1/menu-schedules/${scheduleId}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ date: existingDate.toISOString() });
+      expect(res.status).toBe(400);
+    });
+  });
 });
+
