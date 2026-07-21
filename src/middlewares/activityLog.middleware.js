@@ -4,10 +4,6 @@ const generateDescription = (action, req) => {
   const body = req.body || {};
   
   switch (action) {
-    case "LOGIN":
-      return `Logged into the system`;
-    case "LOGOUT":
-      return `Logged out of the system`;
     case "CREATE_USER":
       return `Created new user account: ${body.fullName || ""} (${body.email || ""}) with role ${body.role || ""}`;
     case "UPDATE_USER":
