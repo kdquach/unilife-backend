@@ -305,9 +305,10 @@ const expirePendingOrders = async () => {
             },
           });
         } else if (item.itemType === "REGULAR_FOOD" && item.foodId) {
-          await Food.findByIdAndUpdate(item.foodId, {
-            $inc: { stockQuantity: item.quantity },
-          });
+          await Food.findOneAndUpdate(
+            { _id: item.foodId, stockQuantity: { $ne: null } },
+            { $inc: { stockQuantity: item.quantity } }
+          );
         }
       }
 

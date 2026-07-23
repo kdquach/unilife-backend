@@ -78,16 +78,16 @@ const getMyCart = async (userId) => {
     if (msi) {
       if (!msi.isActive) {
         isValid = false;
-        reason = "The dish is not available today or has been discontinued";
+        reason = "The food is not available today or has been discontinued";
       } else if (!food) {
         isValid = false;
-        reason = "The dish does not exist";
+        reason = "The food does not exist";
       } else if (!food.isActive) {
         isValid = false;
-        reason = "The dish is no longer available for purchase";
+        reason = "The food is no longer available for purchase";
       } else if (!menuSchedule) {
         isValid = false;
-        reason = "The dish is not on the menu for today";
+        reason = "The food is not on the menu for today";
       } else if (menuSchedule.status !== "PUBLISHED") {
         isValid = false;
         reason = "The menu schedule is not published";
@@ -96,7 +96,7 @@ const getMyCart = async (userId) => {
         reason = "Only today's menu items can be ordered";
       } else if (msi.remainingCount <= 0) {
         isValid = false;
-        reason = "The dish is out of stock";
+        reason = "The food is out of stock";
       } else if (item.quantity <= 0) {
         isValid = false;
         reason = "The quantity must be greater than 0";
@@ -107,14 +107,14 @@ const getMyCart = async (userId) => {
     } else if (regularFood) {
       if (!regularFood.isActive) {
         isValid = false;
-        reason = "The dish is no longer available for purchase";
-      } else if (regularFood.stockQuantity <= 0) {
+        reason = "The food is no longer available for purchase";
+      } else if (regularFood.stockQuantity !== null && regularFood.stockQuantity <= 0) {
         isValid = false;
-        reason = "The dish is out of stock";
+        reason = "The food is out of stock";
       } else if (item.quantity <= 0) {
         isValid = false;
         reason = "The quantity must be greater than 0";
-      } else if (regularFood.stockQuantity < item.quantity) {
+      } else if (regularFood.stockQuantity !== null && regularFood.stockQuantity < item.quantity) {
         isValid = false;
         reason = `The remaining quantity is insufficient (only ${regularFood.stockQuantity} items left)`;
       }
@@ -173,7 +173,7 @@ const addItem = async (userId, data) => {
   const { menuScheduleItemId, foodId, quantity, suppressNotification } = data;
   let addedFoodName = "mon an";
   if ((!menuScheduleItemId && !foodId) || quantity == null || !Number.isInteger(quantity) || quantity <= 0) {
-    const error = new Error("Quantity must be a positive integer, and a dish ID is required.");
+    const error = new Error("Quantity must be a positive integer, and a food ID is required.");
     error.statusCode = 400;
     throw error;
   }
@@ -191,19 +191,19 @@ const addItem = async (userId, data) => {
       .lean();
 
     if (!msi) {
-      const err = new Error("The dish does not exist in the menu schedule");
+      const err = new Error("The food does not exist in the menu schedule");
       err.statusCode = 404;
       throw err;
     }
     if (!msi.isActive) {
       const err = new Error(
-        "The dish is not available today or has been discontinued",
+        "The food is not available today or has been discontinued",
       );
       err.statusCode = 400;
       throw err;
     }
     if (!msi.foodId || !msi.foodId.isActive) {
-      const err = new Error("The dish is no longer available for purchase");
+      const err = new Error("The food is no longer available for purchase");
       err.statusCode = 400;
       throw err;
     }
@@ -243,17 +243,17 @@ const addItem = async (userId, data) => {
   } else if (foodId) {
     const food = await Food.findById(foodId).select("isActive stockQuantity isMenuItem name").lean();
     if (!food) {
-      const err = new Error("The dish does not exist");
+      const err = new Error("The food does not exist");
       err.statusCode = 404;
       throw err;
     }
     if (food.isMenuItem) {
-      const err = new Error("This dish must be ordered from the menu schedule");
+      const err = new Error("This food must be ordered from the menu schedule");
       err.statusCode = 400;
       throw err;
     }
     if (!food.isActive) {
-      const err = new Error("The dish is no longer available for purchase");
+      const err = new Error("The food is no longer available for purchase");
       err.statusCode = 400;
       throw err;
     }
@@ -267,7 +267,7 @@ const addItem = async (userId, data) => {
       .lean();
     const currentQuantity = existingCartItem ? existingCartItem.quantity : 0;
 
-    if (currentQuantity + quantity > food.stockQuantity) {
+    if (food.stockQuantity !== null && currentQuantity + quantity > food.stockQuantity) {
       const err = new Error(
         `The remaining quantity is insufficient (only ${food.stockQuantity} items left)`,
       );
@@ -336,7 +336,7 @@ const updateItem = async (userId, cartItemId, data) => {
       .populate({ path: "menuScheduleId", select: "date status" })
       .lean();
     if (!msi) {
-      const err = new Error("The dish does not exist in the menu schedule.");
+      const err = new Error("The food does not exist in the menu schedule.");
       err.statusCode = 404;
       throw err;
     }
@@ -363,12 +363,12 @@ const updateItem = async (userId, cartItemId, data) => {
   } else if (existingCartItem.foodId) {
     const food = await Food.findById(existingCartItem.foodId).select("stockQuantity").lean();
     if (!food) {
-      const err = new Error("The dish does not exist.");
+      const err = new Error("The food does not exist.");
       err.statusCode = 404;
       throw err;
     }
 
-    if (quantity > food.stockQuantity) {
+    if (food.stockQuantity !== null && quantity > food.stockQuantity) {
       const err = new Error(
         `The remaining quantity is insufficient (only ${food.stockQuantity} items left)`,
       );
