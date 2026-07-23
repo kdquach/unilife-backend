@@ -538,6 +538,7 @@ const updateById = async (id, data) => {
       );
       error.statusCode = 400;
       throw error;
+    }
 
     if (order.paymentStatus === "PAID") {
       order.paymentStatus = "REFUND_PENDING";
