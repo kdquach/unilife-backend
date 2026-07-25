@@ -7,6 +7,7 @@ const Cart = require("../cart/cart.model");
 const CartItem = require("../cartItem/cartItem.model");
 const queueService = require("../queue/queue.service");
 const userNotificationService = require("../userNotification/userNotification.service");
+const mongoose = require("mongoose");
 const { getPagination } = require("../../utils/pagination.util");
 const {
   generateTransferContent,
