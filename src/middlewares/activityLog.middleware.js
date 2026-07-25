@@ -52,6 +52,24 @@ const generateDescription = (action, req) => {
       return `Created walk-in order, total amount: ${body.totalAmount || 0} VND`;
     case "UPDATE_ORDER":
       return `Updated order status to ${body.status || ""}`;
+    case "UPDATE_PROFILE":
+      return `Updated profile information: ${body.fullName || ""}`;
+    case "REPLY_RATING":
+      return `Replied to rating ID ${req.params.id || ""}`;
+    case "SCAN_QUEUE_ORDER":
+      return `Scanned order QR for queue: order ID ${body.orderId || ""}`;
+    case "CALL_NEXT_QUEUE":
+      return `Called next queue number`;
+    case "CREATE_INGREDIENT_TRANSACTION":
+      return `Created ingredient transaction (${body.type || ""})`;
+    case "CREATE_MENU_SCHEDULE_ITEM":
+      return `Added item to menu schedule ID ${body.menuScheduleId || ""}`;
+    case "UPDATE_MENU_SCHEDULE_ITEM":
+      return `Updated menu schedule item ID ${req.params.id || ""}`;
+    case "DELETE_MENU_SCHEDULE_ITEM":
+      return `Deleted menu schedule item ID ${req.params.id || ""}`;
+    case "SCAN_PICKUP_QR":
+      return `Scanned customer pickup QR code`;
     default:
       return `${req.method} ${req.originalUrl}`;
   }

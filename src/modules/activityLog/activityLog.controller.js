@@ -5,6 +5,9 @@ const service = require("./activityLog.service");
 const create = asyncHandler(async (req, res) =>
   success(res, await service.create(req.body), "Created successfully", 201),
 );
+const getStats = asyncHandler(async (req, res) =>
+  success(res, await service.getStats(req.query), "Get stats successfully"),
+);
 const list = asyncHandler(async (req, res) =>
   success(res, await service.list(req.query), "Get list successfully"),
 );
@@ -22,4 +25,4 @@ const deleteById = asyncHandler(async (req, res) =>
   success(res, await service.deleteById(req.params.id), "Deleted successfully"),
 );
 
-module.exports = { create, list, getById, updateById, deleteById };
+module.exports = { create, getStats, list, getById, updateById, deleteById };

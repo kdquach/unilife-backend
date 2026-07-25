@@ -16,6 +16,7 @@ router.post("/checkout", writeActivityLog("CHECKOUT_ORDER", "Order"), controller
 router.post(
   "/scan-pickup-qr",
   authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.COUNTER_STAFF),
+  writeActivityLog("SCAN_PICKUP_QR", "Order"),
   controller.scanPickupQr,
 );
 

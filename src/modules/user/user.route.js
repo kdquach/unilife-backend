@@ -10,7 +10,7 @@ const router = express.Router();
 
 router.use(authenticate);
 router.get("/profile", controller.getProfile);
-router.patch("/profile", controller.updateProfile);
+router.patch("/profile", writeActivityLog("UPDATE_PROFILE", "User"), controller.updateProfile);
 router.post(
   "/profile/avatar",
   avatarUpload.single("avatar"),

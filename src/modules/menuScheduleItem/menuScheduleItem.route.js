@@ -1,6 +1,7 @@
 const express = require("express");
 const controller = require("./menuScheduleItem.controller");
 const { authenticate, authorize } = require("../../middlewares/auth.middleware");
+const { writeActivityLog } = require("../../middlewares/activityLog.middleware");
 const ROLES = require("../../constants/roles.constant");
 
 const router = express.Router();
@@ -25,9 +26,9 @@ const createItemLimiter = rateLimit({
 // Protected routes (require login for manage/edit)
 router.use(authenticate);
 router.use(authorize(ROLES.MANAGER, ROLES.ADMIN));
-router.post("/", createItemLimiter, validate(createMenuScheduleItemSchema), controller.create);
-router.patch("/:id", validate(updateMenuScheduleItemSchema), controller.updateById);
-router.delete("/:id", controller.deleteById);
+router.post("/", createItemLimiter, writeActivityLog("CREATE_MENU_SCHEDULE_ITEM", "MenuScheduleItem"), validate(createMenuScheduleItemSchema), controller.create);
+router.patch("/:id", writeActivityLog("UPDATE_MENU_SCHEDULE_ITEM", "MenuScheduleItem"), validate(updateMenuScheduleItemSchema), controller.updateById);
+router.delete("/:id", writeActivityLog("DELETE_MENU_SCHEDULE_ITEM", "MenuScheduleItem"), controller.deleteById);
 
 module.exports = router;
 
