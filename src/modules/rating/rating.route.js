@@ -2,6 +2,7 @@ const express = require("express");
 const controller = require("./rating.controller");
 const { authenticate } = require("../../middlewares/auth.middleware");
 const { authorize } = require("../../middlewares/role.middleware");
+const { writeActivityLog } = require("../../middlewares/activityLog.middleware");
 const ROLES = require("../../constants/roles.constant");
 
 const router = express.Router();
@@ -31,6 +32,7 @@ router.get(
 router.patch(
   "/:id/reply",
   authorize(ROLES.COUNTER_STAFF, ROLES.MANAGER, ROLES.ADMIN),
+  writeActivityLog("REPLY_RATING", "Rating"),
   controller.reply,
 );
 
