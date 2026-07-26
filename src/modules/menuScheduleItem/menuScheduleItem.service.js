@@ -3,6 +3,7 @@ const MenuScheduleItem = require("./menuScheduleItem.model");
 const MenuSchedule = require("../menuSchedule/menuSchedule.model");
 const Food = require("../food/food.model");
 const FoodIngredient = require("../foodIngredient/foodIngredient.model");
+const Ingredient = require("../ingredient/ingredient.model");
 const ingredientService = require("../ingredient/ingredient.service");
 const { getPagination } = require("../../utils/pagination.util");
 const { getVietnamDayRange } = require("../../utils/date.util");
@@ -53,9 +54,9 @@ const create = async (data, user) => {
       schedule.increment();
       await schedule.save({ session });
 
-      const recipe = await FoodIngredient.find({ foodId }).session(session);
+      const recipe = await FoodIngredient.find({ foodId }).populate("ingredientId").session(session);
       const recipeSnapshot = recipe.map((r) => ({
-        ingredientId: r.ingredientId,
+        ingredientId: r.ingredientId._id || r.ingredientId,
         quantityPerServing: r.quantityPerServing,
       }));
 
@@ -63,25 +64,53 @@ const create = async (data, user) => {
       const deductedBatches = [];
 
       // Sort A-Z to prevent deadlock
-      recipe.sort((a, b) => String(a.ingredientId).localeCompare(String(b.ingredientId)));
+      recipe.sort((a, b) => {
+        const idA = a.ingredientId._id ? String(a.ingredientId._id) : String(a.ingredientId);
+        const idB = b.ingredientId._id ? String(b.ingredientId._id) : String(b.ingredientId);
+        return idA.localeCompare(idB);
+      });
 
       for (const r of recipe) {
         const totalQty = r.quantityPerServing * finalMaxServing;
         if (totalQty > 0) {
+          const ingId = r.ingredientId._id || r.ingredientId;
+          const ingDoc = r.ingredientId._id ? r.ingredientId : await Ingredient.findById(ingId).session(session);
+          const ingName = ingDoc?.name || "Nguyên liệu";
+          const ingUnit = ingDoc?.unit || "";
+          const currentStock = ingDoc?.currentStock !== undefined ? ingDoc.currentStock : 0;
+
+          if (currentStock < totalQty) {
+            const shortage = totalQty - currentStock;
+            const error = new Error(
+              `Insufficient ingredient "${ingName}" for food "${food.name}". Required: ${totalQty} ${ingUnit}, Available in stock: ${currentStock} ${ingUnit} (Shortage: ${shortage} ${ingUnit})`
+            );
+            error.statusCode = 400;
+            throw error;
+          }
+
           const adjData = {
             adjustmentType: "DECREASE",
             quantity: totalQty,
             reason: `Deducted for Menu Schedule: ${schedule.date.toISOString().split('T')[0]}`,
             referenceType: "MENU_SCHEDULE",
           };
-          const res = await ingredientService.adjustStock(r.ingredientId, adjData, user, session);
-          const affected = res.transaction.metadata.affectedBatches;
-          for (const batch of affected) {
-            deductedBatches.push({
-              ingredientId: r.ingredientId,
-              batchId: batch.batchId,
-              quantity: Math.abs(batch.quantity),
-            });
+          try {
+            const res = await ingredientService.adjustStock(ingId, adjData, user, session);
+            const affected = res.transaction.metadata.affectedBatches;
+            for (const batch of affected) {
+              deductedBatches.push({
+                ingredientId: ingId,
+                batchId: batch.batchId,
+                quantity: Math.abs(batch.quantity),
+              });
+            }
+          } catch (err) {
+            const shortage = Math.max(0, totalQty - currentStock);
+            const error = new Error(
+              `Insufficient ingredient "${ingName}" for food "${food.name}". Required: ${totalQty} ${ingUnit}, Available in stock: ${currentStock} ${ingUnit}${shortage > 0 ? ` (Shortage: ${shortage} ${ingUnit})` : ''}`
+            );
+            error.statusCode = 400;
+            throw error;
           }
         }
       }
@@ -180,35 +209,65 @@ const createBulk = async (data, user) => {
       for (const itemData of items) {
         const foodId = itemData.foodId;
         const maxServing = itemData.maxServing;
+        const food = foundFoods.find(f => String(f._id) === String(foodId));
+        const foodName = food ? food.name : "Món ăn";
 
-        const recipe = await FoodIngredient.find({ foodId }).session(session);
+        const recipe = await FoodIngredient.find({ foodId }).populate("ingredientId").session(session);
         const recipeSnapshot = recipe.map((r) => ({
-          ingredientId: r.ingredientId,
+          ingredientId: r.ingredientId._id || r.ingredientId,
           quantityPerServing: r.quantityPerServing,
         }));
 
         const finalMaxServing = Math.max(0, parseInt(maxServing) || 0);
         const deductedBatches = [];
 
-        recipe.sort((a, b) => String(a.ingredientId).localeCompare(String(b.ingredientId)));
+        recipe.sort((a, b) => {
+          const idA = a.ingredientId._id ? String(a.ingredientId._id) : String(a.ingredientId);
+          const idB = b.ingredientId._id ? String(b.ingredientId._id) : String(b.ingredientId);
+          return idA.localeCompare(idB);
+        });
 
         for (const r of recipe) {
           const totalQty = r.quantityPerServing * finalMaxServing;
           if (totalQty > 0) {
+            const ingId = r.ingredientId._id || r.ingredientId;
+            const ingDoc = r.ingredientId._id ? r.ingredientId : await Ingredient.findById(ingId).session(session);
+            const ingName = ingDoc?.name || "Nguyên liệu";
+            const ingUnit = ingDoc?.unit || "";
+            const currentStock = ingDoc?.currentStock !== undefined ? ingDoc.currentStock : 0;
+
+            if (currentStock < totalQty) {
+              const shortage = totalQty - currentStock;
+              const error = new Error(
+                `Insufficient ingredient "${ingName}" for food "${foodName}". Required: ${totalQty} ${ingUnit}, Available in stock: ${currentStock} ${ingUnit} (Shortage: ${shortage} ${ingUnit})`
+              );
+              error.statusCode = 400;
+              throw error;
+            }
+
             const adjData = {
               adjustmentType: "DECREASE",
               quantity: totalQty,
               reason: `Deducted for Menu Schedule: ${schedule.date.toISOString().split('T')[0]}`,
               referenceType: "MENU_SCHEDULE",
             };
-            const res = await ingredientService.adjustStock(r.ingredientId, adjData, user, session);
-            const affected = res.transaction.metadata.affectedBatches;
-            for (const batch of affected) {
-              deductedBatches.push({
-                ingredientId: r.ingredientId,
-                batchId: batch.batchId,
-                quantity: Math.abs(batch.quantity),
-              });
+            try {
+              const res = await ingredientService.adjustStock(ingId, adjData, user, session);
+              const affected = res.transaction.metadata.affectedBatches;
+              for (const batch of affected) {
+                deductedBatches.push({
+                  ingredientId: ingId,
+                  batchId: batch.batchId,
+                  quantity: Math.abs(batch.quantity),
+                });
+              }
+            } catch (err) {
+              const shortage = Math.max(0, totalQty - currentStock);
+              const error = new Error(
+                `Insufficient ingredient "${ingName}" for food "${foodName}". Required: ${totalQty} ${ingUnit}, Available in stock: ${currentStock} ${ingUnit}${shortage > 0 ? ` (Shortage: ${shortage} ${ingUnit})` : ''}`
+              );
+              error.statusCode = 400;
+              throw error;
             }
           }
         }
@@ -321,34 +380,60 @@ const performRefund = async (item, refundQuantity, user, session) => {
 const performIncrease = async (item, increaseQuantity, user, session) => {
   if (increaseQuantity <= 0) return;
 
+  const food = await Food.findById(item.foodId).session(session);
+  const foodName = food ? food.name : "Món ăn";
+
   const recipe = item.recipeSnapshot || [];
   recipe.sort((a, b) => String(a.ingredientId).localeCompare(String(b.ingredientId)));
 
   for (const r of recipe) {
     const totalQty = r.quantityPerServing * increaseQuantity;
     if (totalQty > 0) {
+      const ingredient = await Ingredient.findById(r.ingredientId).session(session);
+      const ingName = ingredient ? ingredient.name : "Nguyên liệu";
+      const ingUnit = ingredient ? ingredient.unit || "" : "";
+      const currentStock = ingredient ? ingredient.currentStock || 0 : 0;
+
+      if (currentStock < totalQty) {
+        const shortage = totalQty - currentStock;
+        const error = new Error(
+          `Insufficient ingredient "${ingName}" for food "${foodName}". Required increase: ${totalQty} ${ingUnit}, Available in stock: ${currentStock} ${ingUnit} (Shortage: ${shortage} ${ingUnit})`
+        );
+        error.statusCode = 400;
+        throw error;
+      }
+
       const adjData = {
         adjustmentType: "DECREASE",
         quantity: totalQty,
         reason: `Deducted for Menu Schedule Increase`,
         referenceType: "MENU_SCHEDULE",
       };
-      const res = await ingredientService.adjustStock(r.ingredientId, adjData, user, session);
-      const affected = res.transaction.metadata.affectedBatches;
-      for (const batch of affected) {
-        // Find existing batch entry or add new
-        const existingBatch = item.deductedBatches.find(
-          (b) => String(b.ingredientId) === String(r.ingredientId) && String(b.batchId) === String(batch.batchId)
-        );
-        if (existingBatch) {
-          existingBatch.quantity += Math.abs(batch.quantity);
-        } else {
-          item.deductedBatches.push({
-            ingredientId: r.ingredientId,
-            batchId: batch.batchId,
-            quantity: Math.abs(batch.quantity),
-          });
+      try {
+        const res = await ingredientService.adjustStock(r.ingredientId, adjData, user, session);
+        const affected = res.transaction.metadata.affectedBatches;
+        for (const batch of affected) {
+          // Find existing batch entry or add new
+          const existingBatch = item.deductedBatches.find(
+            (b) => String(b.ingredientId) === String(r.ingredientId) && String(b.batchId) === String(batch.batchId)
+          );
+          if (existingBatch) {
+            existingBatch.quantity += Math.abs(batch.quantity);
+          } else {
+            item.deductedBatches.push({
+              ingredientId: r.ingredientId,
+              batchId: batch.batchId,
+              quantity: Math.abs(batch.quantity),
+            });
+          }
         }
+      } catch (err) {
+        const shortage = Math.max(0, totalQty - currentStock);
+        const error = new Error(
+          `Insufficient ingredient "${ingName}" for food "${foodName}". Required increase: ${totalQty} ${ingUnit}, Available in stock: ${currentStock} ${ingUnit}${shortage > 0 ? ` (Shortage: ${shortage} ${ingUnit})` : ''}`
+        );
+        error.statusCode = 400;
+        throw error;
       }
     }
   }

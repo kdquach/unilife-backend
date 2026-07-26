@@ -98,18 +98,23 @@ describe("GET /api/v1/menu-schedules/staff", () => {
         status: "AVAILABLE"
       });
 
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const dayAfter = new Date();
+      dayAfter.setDate(dayAfter.getDate() + 2);
+
       // Seed Data: Menu Schedules
       const schedule1 = await MenuSchedule.create({
         status: "DRAFT",
-        date: new Date("2026-06-25T00:00:00.000Z"),
+        date: new Date("2028-06-25T00:00:00.000Z"),
       });
       const schedule2 = await MenuSchedule.create({
         status: "PUBLISHED",
-        date: new Date("2026-06-26T00:00:00.000Z"),
+        date: new Date("2028-06-26T00:00:00.000Z"),
       });
       const schedule3 = await MenuSchedule.create({
         status: "PUBLISHED",
-        date: new Date("2026-06-27T00:00:00.000Z"),
+        date: new Date("2028-06-27T00:00:00.000Z"),
       });
 
       // Seed Data: Items (Linking food to schedule)
@@ -154,7 +159,7 @@ describe("GET /api/v1/menu-schedules/staff", () => {
 
     it("should filter menu schedules by exact date branch", async () => {
       const res = await request(app)
-        .get("/api/v1/menu-schedules/staff?date=2026-06-26")
+        .get("/api/v1/menu-schedules/staff?date=2028-06-26")
         .set("Authorization", `Bearer ${token}`);
       
       expect(res.status).toBe(200);
@@ -163,7 +168,7 @@ describe("GET /api/v1/menu-schedules/staff", () => {
 
     it("should filter menu schedules by dateFrom and dateTo range branch", async () => {
       const res = await request(app)
-        .get("/api/v1/menu-schedules/staff?dateFrom=2026-06-25&dateTo=2026-06-26")
+        .get("/api/v1/menu-schedules/staff?dateFrom=2028-06-25&dateTo=2028-06-26")
         .set("Authorization", `Bearer ${token}`);
       
       expect(res.status).toBe(200);
@@ -374,6 +379,108 @@ describe("GET /api/v1/menu-schedules/staff", () => {
         .set("Authorization", `Bearer ${token}`)
         .send({ date: existingDate.toISOString() });
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe("Lazy Auto-Completion of Past Published Menu Schedules", () => {
+    it("should automatically convert past PUBLISHED menu schedules to COMPLETED on list query", async () => {
+      const pastDate = new Date();
+      pastDate.setDate(pastDate.getDate() - 2); // 2 days ago
+
+      // Create a past schedule directly in database with PUBLISHED status
+      const pastSchedule = await MenuSchedule.create({
+        status: "PUBLISHED",
+        date: pastDate,
+      });
+
+      const { token } = await createTestUser(ROLES.MANAGER);
+
+      // Perform a list query
+      const res = await request(app)
+        .get("/api/v1/menu-schedules/staff")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+
+      // Retrieve from database and verify status is now COMPLETED
+      const updatedSchedule = await MenuSchedule.findById(pastSchedule._id);
+      expect(updatedSchedule.status).toBe("COMPLETED");
+    });
+  });
+
+  describe("Lazy Auto-Cancellation of Past DRAFT Menu Schedules with Inventory Refund", () => {
+    it("should automatically convert past DRAFT menu schedules to CANCELLED and refund ingredients on list query", async () => {
+      const Ingredient = require("../ingredient/ingredient.model");
+      const IngredientBatch = require("../ingredientBatch/ingredientBatch.model");
+      const FoodIngredient = require("../foodIngredient/foodIngredient.model");
+
+      const managerUser = await createTestUser(ROLES.MANAGER);
+
+      // 1. Create ingredient with a batch of stock
+      const ing = await Ingredient.create({ name: "Bò Mỹ", unit: "kg", currentStock: 100, isActive: true });
+      await IngredientBatch.create({
+        ingredientId: ing._id,
+        supplierId: new mongoose.Types.ObjectId(),
+        importPrice: 10000,
+        initialQuantity: 100,
+        remainingQuantity: 100,
+        isActive: true,
+      });
+
+      // 2. Link ingredient to food
+      const category = await FoodCategory.create({ name: "Beef Category", description: "Desc" });
+      const beefFood = await Food.create({
+        name: "Beef Steak",
+        categoryId: category._id,
+        price: 150000,
+        status: "AVAILABLE",
+      });
+      await FoodIngredient.create({ foodId: beefFood._id, ingredientId: ing._id, quantityPerServing: 2 });
+
+      // 3. Create a future DRAFT menu schedule
+      const futureDate = new Date();
+      futureDate.setDate(futureDate.getDate() + 5);
+      const schedule = await MenuSchedule.create({
+        status: "DRAFT",
+        date: futureDate,
+      });
+
+      // 4. Add food item to draft schedule (deducts 2 * 10 = 20 kg beef)
+      const resAdd = await request(app)
+        .post("/api/v1/menu-schedule-items")
+        .set("Authorization", `Bearer ${managerUser.token}`)
+        .send({
+          menuScheduleId: schedule._id,
+          foodId: beefFood._id,
+          maxServing: 10,
+        });
+      expect(resAdd.status).toBe(201);
+
+      // Verify stock is deducted
+      let currentIng = await Ingredient.findById(ing._id);
+      expect(currentIng.currentStock).toBe(80);
+
+      // 5. Change schedule date to be in the past
+      const pastDate = new Date();
+      pastDate.setDate(pastDate.getDate() - 2);
+      schedule.date = pastDate;
+      await schedule.save();
+
+      // 6. Perform a list query to trigger auto-cancellation
+      const resList = await request(app)
+        .get("/api/v1/menu-schedules/staff")
+        .set("Authorization", `Bearer ${managerUser.token}`);
+      expect(resList.status).toBe(200);
+
+      // 7. Verify schedule status is now CANCELLED and stock is refunded
+      const updatedSchedule = await MenuSchedule.findById(schedule._id);
+      expect(updatedSchedule.status).toBe("CANCELLED");
+
+      const refundedIng = await Ingredient.findById(ing._id);
+      expect(refundedIng.currentStock).toBe(100);
+
+      const refundedBatch = await IngredientBatch.findOne({ ingredientId: ing._id });
+      expect(refundedBatch.remainingQuantity).toBe(100);
     });
   });
 });

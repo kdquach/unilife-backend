@@ -93,6 +93,25 @@ describe("MenuScheduleItem Routes (POST, PATCH, DELETE)", () => {
       expect(res.status).toBe(400);
       expect(res.body.message).toMatch(/Duplicate food items found/i);
     });
+
+    it("should return detailed insufficient ingredient error message including food name and ingredient name", async () => {
+      const Ingredient = require("../ingredient/ingredient.model");
+      const FoodIngredient = require("../foodIngredient/foodIngredient.model");
+
+      const ing = await Ingredient.create({ name: "Phô Mai", unit: "g", currentStock: 50 });
+      await FoodIngredient.create({ foodId: food._id, ingredientId: ing._id, quantityPerServing: 10 });
+
+      const res = await request(app)
+        .post("/api/v1/menu-schedule-items")
+        .set("Authorization", `Bearer ${managerToken}`)
+        .send({ menuScheduleId: schedule._id, foodId: food._id, maxServing: 10 });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toContain('Insufficient ingredient "Phô Mai" for food "Pizza"');
+      expect(res.body.message).toContain('Required: 100 g');
+      expect(res.body.message).toContain('Available in stock: 50 g');
+      expect(res.body.message).toContain('Shortage: 50 g');
+    });
   });
 
   describe("POST /api/v1/menu-schedule-items", () => {
