@@ -97,7 +97,7 @@ const list = async (query = {}) => {
       .populate(getPopulateItemsOption())
       .skip(skip)
       .limit(limit)
-      .sort({ date: 1 }),
+      .sort({ createdAt: -1 }),
     MenuSchedule.countDocuments(filter),
   ]);
 
@@ -129,7 +129,7 @@ const listMenuScheduleForStaff = async (query = {}) => {
       .populate(getPopulateItemsOption(query.includeInactive === "true"))
       .skip(skip)
       .limit(limit)
-      .sort({ date: 1 }),
+      .sort({ createdAt: -1 }),
     MenuSchedule.countDocuments(filter),
   ]);
 

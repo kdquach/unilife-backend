@@ -117,6 +117,133 @@ const create = async (data, user) => {
   return createdItem;
 };
 
+const createBulk = async (data, user) => {
+  const { menuScheduleId, items } = data;
+  if (!Array.isArray(items) || items.length === 0) {
+    const error = new Error("Items array is required and must not be empty");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  // Check duplicate foodIds in payload
+  const foodIdSet = new Set();
+  for (const item of items) {
+    if (foodIdSet.has(String(item.foodId))) {
+      const error = new Error("Duplicate food items found in request");
+      error.statusCode = 400;
+      throw error;
+    }
+    foodIdSet.add(String(item.foodId));
+  }
+
+  // Verify all foods exist
+  const foodIds = items.map((i) => i.foodId);
+  const foundFoods = await Food.find({ _id: { $in: foodIds } });
+  if (foundFoods.length !== foodIds.length) {
+    const error = new Error("One or more food items were not found");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const session = await mongoose.startSession();
+  let createdItems = [];
+
+  try {
+    await session.withTransaction(async () => {
+      const schedule = await MenuSchedule.findById(menuScheduleId).session(session);
+      if (!schedule) {
+        const error = new Error("Menu schedule not found");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const { start: todayStart } = getVietnamDayRange();
+      const scheduleStart = getVietnamDayRange(schedule.date).start;
+      if (scheduleStart < todayStart) {
+        const error = new Error("Cannot add items to a frozen/past menu schedule");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      if (schedule.status === "CANCELLED" || schedule.status === "COMPLETED") {
+        const error = new Error(`Cannot add items to a ${schedule.status} menu schedule`);
+        error.statusCode = 400;
+        throw error;
+      }
+
+      // Lock the schedule document to prevent write skew / race conditions
+      schedule.increment();
+      await schedule.save({ session });
+
+      const docsToCreate = [];
+
+      for (const itemData of items) {
+        const foodId = itemData.foodId;
+        const maxServing = itemData.maxServing;
+
+        const recipe = await FoodIngredient.find({ foodId }).session(session);
+        const recipeSnapshot = recipe.map((r) => ({
+          ingredientId: r.ingredientId,
+          quantityPerServing: r.quantityPerServing,
+        }));
+
+        const finalMaxServing = Math.max(0, parseInt(maxServing) || 0);
+        const deductedBatches = [];
+
+        recipe.sort((a, b) => String(a.ingredientId).localeCompare(String(b.ingredientId)));
+
+        for (const r of recipe) {
+          const totalQty = r.quantityPerServing * finalMaxServing;
+          if (totalQty > 0) {
+            const adjData = {
+              adjustmentType: "DECREASE",
+              quantity: totalQty,
+              reason: `Deducted for Menu Schedule: ${schedule.date.toISOString().split('T')[0]}`,
+              referenceType: "MENU_SCHEDULE",
+            };
+            const res = await ingredientService.adjustStock(r.ingredientId, adjData, user, session);
+            const affected = res.transaction.metadata.affectedBatches;
+            for (const batch of affected) {
+              deductedBatches.push({
+                ingredientId: r.ingredientId,
+                batchId: batch.batchId,
+                quantity: Math.abs(batch.quantity),
+              });
+            }
+          }
+        }
+
+        docsToCreate.push({
+          menuScheduleId,
+          foodId,
+          maxServing: finalMaxServing,
+          isActive: itemData.isActive !== undefined ? itemData.isActive : true,
+          remainingCount: finalMaxServing,
+          reservedCount: 0,
+          servedCount: 0,
+          recipeSnapshot,
+          deductedBatches,
+        });
+      }
+
+      try {
+        createdItems = await MenuScheduleItem.insertMany(docsToCreate, { session });
+      } catch (err) {
+        if (err.code === 11000) {
+          const error = new Error("One or more food items are already added to this menu schedule");
+          error.statusCode = 400;
+          throw error;
+        }
+        throw err;
+      }
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  return createdItems;
+};
+
 const list = async (query = {}) => {
   const { page, limit, skip } = getPagination(query);
   const filter = {};
@@ -331,5 +458,5 @@ const deleteById = async (id) => {
 };
 
 // Export internal functions for menuSchedule.service to use in bulk operations
-module.exports = { create, list, getById, updateById, deleteById, internalPerformRefund: performRefund };
+module.exports = { create, createBulk, list, getById, updateById, deleteById, internalPerformRefund: performRefund };
 

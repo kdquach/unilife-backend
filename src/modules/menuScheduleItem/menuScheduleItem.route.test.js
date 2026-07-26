@@ -61,6 +61,40 @@ describe("MenuScheduleItem Routes (POST, PATCH, DELETE)", () => {
     schedule = await MenuSchedule.create({ date: new Date(Date.now() + 86400000), status: "PUBLISHED" });
   });
 
+  describe("POST /api/v1/menu-schedule-items/bulk", () => {
+    it("should successfully add multiple items in bulk", async () => {
+      const food2 = await Food.create({ name: "Burger", categoryId: category._id, price: 1200, status: "AVAILABLE" });
+      const res = await request(app)
+        .post("/api/v1/menu-schedule-items/bulk")
+        .set("Authorization", `Bearer ${managerToken}`)
+        .send({
+          menuScheduleId: schedule._id,
+          items: [
+            { foodId: food._id, maxServing: 20 },
+            { foodId: food2._id, maxServing: 30 }
+          ]
+        });
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.length).toBe(2);
+    });
+
+    it("should reject duplicate food items in bulk payload", async () => {
+      const res = await request(app)
+        .post("/api/v1/menu-schedule-items/bulk")
+        .set("Authorization", `Bearer ${managerToken}`)
+        .send({
+          menuScheduleId: schedule._id,
+          items: [
+            { foodId: food._id, maxServing: 20 },
+            { foodId: food._id, maxServing: 30 }
+          ]
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/Duplicate food items found/i);
+    });
+  });
+
   describe("POST /api/v1/menu-schedule-items", () => {
     it("should return 401 if no token", async () => {
       const res = await request(app).post("/api/v1/menu-schedule-items").send({ menuScheduleId: schedule._id, foodId: food._id, maxServing: 10 });
