@@ -18,6 +18,58 @@ const dateOnly = (value) => {
   return String(value || "").slice(0, 10);
 };
 
+const autoCompletePastSchedules = async () => {
+  try {
+    const { start: todayStart } = getVietnamDayRange();
+
+    // 1. Find past DRAFT menu schedules
+    const pastDrafts = await MenuSchedule.find({
+      date: { $lt: todayStart },
+      status: "DRAFT",
+    }).populate("items");
+
+    if (pastDrafts.length > 0) {
+      const session = await mongoose.startSession();
+      try {
+        await session.withTransaction(async () => {
+          for (const schedule of pastDrafts) {
+            if (schedule.items) {
+              for (const item of schedule.items) {
+                if (item.isActive) {
+                  const refundQty = item.maxServing - (item.reservedCount + item.servedCount);
+                  if (refundQty > 0) {
+                    const systemUser = { role: "ADMIN", userId: schedule.createdBy || null };
+                    await internalPerformRefund(item, refundQty, systemUser, session);
+                  }
+                  item.maxServing = item.reservedCount + item.servedCount;
+                  item.remainingCount = 0;
+                  item.isActive = false;
+                  await item.save({ session });
+                }
+              }
+            }
+            schedule.status = "CANCELLED";
+            schedule.isActive = false;
+            await schedule.save({ session });
+          }
+        });
+      } catch (transactionErr) {
+        console.error("Failed transaction during past draft auto-cancellation:", transactionErr.message);
+      } finally {
+        await session.endSession();
+      }
+    }
+
+    // 2. Auto-complete past PUBLISHED menu schedules
+    await MenuSchedule.updateMany(
+      { date: { $lt: todayStart }, status: "PUBLISHED" },
+      { $set: { status: "COMPLETED" } }
+    );
+  } catch (err) {
+    console.error("Failed to auto-complete past menu schedules:", err.message);
+  }
+};
+
 const getPopulateItemsOption = (includeInactive = false) => ({
   path: "items",
   match: includeInactive ? undefined : { isActive: true },
@@ -69,6 +121,7 @@ const create = async (data, user) => {
 };
 
 const list = async (query = {}) => {
+  await autoCompletePastSchedules();
   const { page, limit, skip } = getPagination(query);
   const filter = {};
   const allowedPublicStatuses = ["PUBLISHED", "COMPLETED"];
@@ -97,7 +150,7 @@ const list = async (query = {}) => {
       .populate(getPopulateItemsOption())
       .skip(skip)
       .limit(limit)
-      .sort({ date: 1 }),
+      .sort({ createdAt: -1 }),
     MenuSchedule.countDocuments(filter),
   ]);
 
@@ -108,6 +161,7 @@ const list = async (query = {}) => {
 };
 
 const listMenuScheduleForStaff = async (query = {}) => {
+  await autoCompletePastSchedules();
   const { page, limit, skip } = getPagination(query);
   const filter = {};
   if (query.status) {
@@ -129,7 +183,7 @@ const listMenuScheduleForStaff = async (query = {}) => {
       .populate(getPopulateItemsOption(query.includeInactive === "true"))
       .skip(skip)
       .limit(limit)
-      .sort({ date: 1 }),
+      .sort({ createdAt: -1 }),
     MenuSchedule.countDocuments(filter),
   ]);
 
@@ -140,6 +194,7 @@ const listMenuScheduleForStaff = async (query = {}) => {
 };
 
 const getMenuScheduleByIdForStaff = async (id, query = {}) => {
+  await autoCompletePastSchedules();
   let schedule;
   try {
     schedule = await MenuSchedule.findById(id).populate(
@@ -163,6 +218,7 @@ const getMenuScheduleByIdForStaff = async (id, query = {}) => {
 };
 
 const getToday = async () => {
+  await autoCompletePastSchedules();
   const { start, end } = getVietnamDayRange();
 
   return MenuSchedule.findOne({
@@ -172,6 +228,7 @@ const getToday = async () => {
 };
 
 const getById = async (id) => {
+  await autoCompletePastSchedules();
   const schedule = await MenuSchedule.findById(id).populate(getPopulateItemsOption());
   if (!schedule || !["PUBLISHED", "COMPLETED"].includes(schedule.status)) {
     const error = new Error("Menu schedule not found");

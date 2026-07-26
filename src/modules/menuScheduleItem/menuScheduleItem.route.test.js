@@ -61,6 +61,59 @@ describe("MenuScheduleItem Routes (POST, PATCH, DELETE)", () => {
     schedule = await MenuSchedule.create({ date: new Date(Date.now() + 86400000), status: "PUBLISHED" });
   });
 
+  describe("POST /api/v1/menu-schedule-items/bulk", () => {
+    it("should successfully add multiple items in bulk", async () => {
+      const food2 = await Food.create({ name: "Burger", categoryId: category._id, price: 1200, status: "AVAILABLE" });
+      const res = await request(app)
+        .post("/api/v1/menu-schedule-items/bulk")
+        .set("Authorization", `Bearer ${managerToken}`)
+        .send({
+          menuScheduleId: schedule._id,
+          items: [
+            { foodId: food._id, maxServing: 20 },
+            { foodId: food2._id, maxServing: 30 }
+          ]
+        });
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.length).toBe(2);
+    });
+
+    it("should reject duplicate food items in bulk payload", async () => {
+      const res = await request(app)
+        .post("/api/v1/menu-schedule-items/bulk")
+        .set("Authorization", `Bearer ${managerToken}`)
+        .send({
+          menuScheduleId: schedule._id,
+          items: [
+            { foodId: food._id, maxServing: 20 },
+            { foodId: food._id, maxServing: 30 }
+          ]
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/Duplicate food items found/i);
+    });
+
+    it("should return detailed insufficient ingredient error message including food name and ingredient name", async () => {
+      const Ingredient = require("../ingredient/ingredient.model");
+      const FoodIngredient = require("../foodIngredient/foodIngredient.model");
+
+      const ing = await Ingredient.create({ name: "Phô Mai", unit: "g", currentStock: 50 });
+      await FoodIngredient.create({ foodId: food._id, ingredientId: ing._id, quantityPerServing: 10 });
+
+      const res = await request(app)
+        .post("/api/v1/menu-schedule-items")
+        .set("Authorization", `Bearer ${managerToken}`)
+        .send({ menuScheduleId: schedule._id, foodId: food._id, maxServing: 10 });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toContain('Insufficient ingredient "Phô Mai" for food "Pizza"');
+      expect(res.body.message).toContain('Required: 100 g');
+      expect(res.body.message).toContain('Available in stock: 50 g');
+      expect(res.body.message).toContain('Shortage: 50 g');
+    });
+  });
+
   describe("POST /api/v1/menu-schedule-items", () => {
     it("should return 401 if no token", async () => {
       const res = await request(app).post("/api/v1/menu-schedule-items").send({ menuScheduleId: schedule._id, foodId: food._id, maxServing: 10 });
