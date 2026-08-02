@@ -7,6 +7,10 @@ const MenuSchedule = require("../menuSchedule/menuSchedule.model");
 const MenuScheduleItem = require("./menuScheduleItem.model");
 const Food = require("../food/food.model");
 const FoodCategory = require("../foodCategory/foodCategory.model");
+const FoodIngredient = require("../foodIngredient/foodIngredient.model");
+const Ingredient = require("../ingredient/ingredient.model");
+const IngredientBatch = require("../ingredientBatch/ingredientBatch.model");
+const IngredientTransaction = require("../ingredientTransaction/ingredientTransaction.model");
 const Cart = require("../cart/cart.model");
 const CartItem = require("../cartItem/cartItem.model");
 const ROLES = require("../../constants/roles.constant");
@@ -28,6 +32,10 @@ beforeEach(async () => {
   await MenuScheduleItem.deleteMany({});
   await Food.deleteMany({});
   await FoodCategory.deleteMany({});
+  await FoodIngredient.deleteMany({});
+  await Ingredient.deleteMany({});
+  await IngredientBatch.deleteMany({});
+  await IngredientTransaction.deleteMany({});
   await Cart.deleteMany({});
   await CartItem.deleteMany({});
   
@@ -48,11 +56,13 @@ const createTestUser = async (role) => {
 };
 
 describe("MenuScheduleItem Routes (POST, PATCH, DELETE)", () => {
-  let adminToken, managerToken, staffToken, customerToken;
+  let adminToken, managerToken, staffToken, customerToken, managerUser;
   let schedule, food, category;
 
   beforeEach(async () => {
-    managerToken = (await createTestUser(ROLES.MANAGER)).token;
+    const manager = await createTestUser(ROLES.MANAGER);
+    managerToken = manager.token;
+    managerUser = manager.user;
     staffToken = (await createTestUser(ROLES.KITCHEN_STAFF)).token;
     customerToken = (await createTestUser(ROLES.CUSTOMER)).token;
     
@@ -77,6 +87,67 @@ describe("MenuScheduleItem Routes (POST, PATCH, DELETE)", () => {
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(res.body.data.length).toBe(2);
+    });
+
+    it("should deduct ingredient batches and record menu usage history when adding food to an existing schedule in bulk", async () => {
+      const ingredient = await Ingredient.create({
+        name: "Tomato",
+        unit: "g",
+        currentStock: 300,
+        isActive: true,
+      });
+      const earliestBatch = await IngredientBatch.create({
+        ingredientId: ingredient._id,
+        quantity: 200,
+        remainingQuantity: 200,
+        expiryDate: new Date(Date.now() + 3 * 86400000),
+      });
+      const laterBatch = await IngredientBatch.create({
+        ingredientId: ingredient._id,
+        quantity: 100,
+        remainingQuantity: 100,
+        expiryDate: new Date(Date.now() + 10 * 86400000),
+      });
+      await FoodIngredient.create({
+        foodId: food._id,
+        ingredientId: ingredient._id,
+        quantityPerServing: 10,
+        unit: "g",
+      });
+
+      const res = await request(app)
+        .post("/api/v1/menu-schedule-items/bulk")
+        .set("Authorization", `Bearer ${managerToken}`)
+        .send({
+          menuScheduleId: schedule._id,
+          items: [{ foodId: food._id, maxServing: 15 }],
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data).toHaveLength(1);
+
+      const updatedIngredient = await Ingredient.findById(ingredient._id);
+      expect(updatedIngredient.currentStock).toBe(150);
+
+      const updatedEarliestBatch = await IngredientBatch.findById(earliestBatch._id);
+      const updatedLaterBatch = await IngredientBatch.findById(laterBatch._id);
+      expect(updatedEarliestBatch.remainingQuantity).toBe(50);
+      expect(updatedLaterBatch.remainingQuantity).toBe(100);
+
+      const transaction = await IngredientTransaction.findOne({
+        ingredientId: ingredient._id,
+        transactionType: "MENU_USAGE",
+      });
+      expect(transaction).toBeTruthy();
+      expect(transaction.quantity).toBe(-150);
+      expect(transaction.stockBefore).toBe(300);
+      expect(transaction.stockAfter).toBe(150);
+      expect(transaction.referenceType).toBe("MENU_SCHEDULE_ITEM");
+      expect(String(transaction.referenceId)).toBe(String(res.body.data[0]._id));
+      expect(transaction.metadata.source).toBe("MENU_SCHEDULE_ITEM");
+      expect(transaction.metadata.action).toBe("CREATE_MENU_ITEM_BULK");
+      expect(transaction.metadata.foodName).toBe("Pizza");
+      expect(transaction.metadata.affectedBatches[0].batchId).toEqual(earliestBatch._id);
     });
 
     it("should reject duplicate food items in bulk payload", async () => {
@@ -142,6 +213,56 @@ describe("MenuScheduleItem Routes (POST, PATCH, DELETE)", () => {
       expect(res.status).toBe(422);
       expect(res.body.message).toContain("Mass Assignment");
     });
+
+    it("should deduct ingredient stock and record menu usage transaction history", async () => {
+      const ingredient = await Ingredient.create({
+        name: "Cheese",
+        unit: "g",
+        currentStock: 100,
+        isActive: true,
+      });
+      const batch = await IngredientBatch.create({
+        ingredientId: ingredient._id,
+        quantity: 100,
+        remainingQuantity: 100,
+        expiryDate: new Date(Date.now() + 7 * 86400000),
+      });
+      await FoodIngredient.create({
+        foodId: food._id,
+        ingredientId: ingredient._id,
+        quantityPerServing: 2,
+        unit: "g",
+      });
+
+      const res = await request(app)
+        .post("/api/v1/menu-schedule-items")
+        .set("Authorization", `Bearer ${managerToken}`)
+        .send({ menuScheduleId: schedule._id, foodId: food._id, maxServing: 10 });
+
+      expect(res.status).toBe(201);
+
+      const updatedIngredient = await Ingredient.findById(ingredient._id);
+      expect(updatedIngredient.currentStock).toBe(80);
+
+      const updatedBatch = await IngredientBatch.findById(batch._id);
+      expect(updatedBatch.remainingQuantity).toBe(80);
+
+      const transaction = await IngredientTransaction.findOne({
+        ingredientId: ingredient._id,
+        transactionType: "MENU_USAGE",
+      });
+      expect(transaction).toBeTruthy();
+      expect(transaction.quantity).toBe(-20);
+      expect(transaction.stockBefore).toBe(100);
+      expect(transaction.stockAfter).toBe(80);
+      expect(String(transaction.adjustedBy)).toBe(String(managerUser._id));
+      expect(transaction.referenceType).toBe("MENU_SCHEDULE_ITEM");
+      expect(String(transaction.referenceId)).toBe(String(res.body.data._id));
+      expect(transaction.metadata.source).toBe("MENU_SCHEDULE_ITEM");
+      expect(transaction.metadata.foodName).toBe("Pizza");
+      expect(transaction.metadata.servingCount).toBe(10);
+      expect(transaction.metadata.affectedBatches[0].batchId).toEqual(batch._id);
+    });
   });
 
   describe("PATCH /api/v1/menu-schedule-items/:id", () => {
@@ -174,6 +295,7 @@ describe("MenuScheduleItem Routes (POST, PATCH, DELETE)", () => {
       const res = await request(app).patch(`/api/v1/menu-schedule-items/${item._id}`).set("Authorization", `Bearer ${managerToken}`).send({ maxServing: 3 });
       expect(res.status).toBe(400); 
     });
+
   });
 
   describe("DELETE /api/v1/menu-schedule-items/:id", () => {

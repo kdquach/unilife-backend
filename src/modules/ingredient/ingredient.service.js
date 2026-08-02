@@ -72,6 +72,23 @@ const getOptionalObjectId = (value, fieldName) => {
   return trimmed;
 };
 
+const getActorId = (user) => {
+  const value = user?._id || user?.id || user?.userId;
+  if (!value) return null;
+
+  const textValue = String(value).trim();
+  return mongoose.Types.ObjectId.isValid(textValue) ? textValue : null;
+};
+
+const getMetadata = (value) => {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw createError("metadata must be an object");
+  }
+
+  return value;
+};
+
 const getNumber = (value, fieldName, options = {}) => {
   const number = Number(value);
   if (!Number.isFinite(number)) {
@@ -207,7 +224,6 @@ const assertAllowedStockImportFields = (data = {}) => {
     "reason",
     "referenceType",
     "referenceId",
-    "importCode",
   ]);
   const unknownFields = Object.keys(data || {}).filter(
     (field) => !allowedFields.has(field),
@@ -235,6 +251,7 @@ const assertAllowedStockAdjustmentFields = (data = {}) => {
     "reason",
     "referenceType",
     "referenceId",
+    "metadata",
   ]);
   const unknownFields = Object.keys(data || {}).filter(
     (field) => !allowedFields.has(field),
@@ -718,6 +735,8 @@ const adjustStock = async (id, data = {}, user = null, extSession = null) => {
   assertAllowedStockAdjustmentFields(data);
 
   const referenceId = getOptionalObjectId(data.referenceId, "referenceId");
+  const adjustedBy = getActorId(user);
+  const metadata = getMetadata(data.metadata);
   const session = extSession || await mongoose.startSession();
   let transactionId = null;
 
@@ -750,12 +769,13 @@ const adjustStock = async (id, data = {}, user = null, extSession = null) => {
           stockAfter: adjustment.stockAfter,
           unit: ingredient.unit || null,
           reason: adjustment.reason,
-          adjustedBy: user?._id || null,
+          adjustedBy,
           referenceType: data.referenceType || "STOCK_ADJUSTMENT",
           referenceId,
           metadata: {
             adjustmentType: adjustment.adjustmentType,
-            source: "MANUAL_STOCK_ADJUSTMENT",
+            source: metadata.source || "MANUAL_STOCK_ADJUSTMENT",
+            ...metadata,
             affectedBatches: batchResult.affectedBatches,
           },
         },
@@ -807,6 +827,7 @@ const recordStockImport = async (id, data = {}, user = null) => {
   });
   const supplierId = await getSupplierId(data.supplierId);
   const referenceId = getOptionalObjectId(data.referenceId, "referenceId");
+  const adjustedBy = getActorId(user);
   const reason = String(data.reason || "Stock import").trim();
   if (reason.length > 500) {
     throw createError("Reason must be less than or equal to 500 characters");
@@ -857,12 +878,11 @@ const recordStockImport = async (id, data = {}, user = null) => {
             stockAfter,
             unit: ingredient.unit || null,
             reason,
-            adjustedBy: user?._id || null,
+            adjustedBy,
             referenceType: data.referenceType || "STOCK_IMPORT",
             referenceId,
             metadata: {
               source: "MANAGER_STOCK_IMPORT",
-              importCode: data.importCode || null,
               supplierId,
               unitPrice: unitPrice || 0,
               expiryDate,
