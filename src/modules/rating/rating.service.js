@@ -88,6 +88,7 @@ const populateRating = (query) =>
 const assertAllowedCreateFields = (data = {}) => {
   const allowedFields = new Set([
     "orderId",
+    "orderItemId",
     "foodId",
     "ratingType",
     "stars",
@@ -153,6 +154,59 @@ const ensureFoodBelongsToOrder = async (orderId, foodId) => {
   return foodId;
 };
 
+const getFoodIdFromOrderItem = (orderItem) => {
+  const directFoodId = orderItem.foodId?._id || orderItem.foodId;
+  const menuFoodId = orderItem.menuScheduleItemId?.foodId?._id;
+  return directFoodId || menuFoodId || null;
+};
+
+const ensureOrderItemForReview = async (orderId, orderItemId, foodId = null) => {
+  const orderItem = await OrderItem.findOne({ _id: orderItemId, orderId })
+    .populate("foodId", "_id name imageUrl price")
+    .populate({
+      path: "menuScheduleItemId",
+      populate: { path: "foodId", select: "_id name imageUrl price" },
+    });
+
+  if (!orderItem) {
+    throw createError("Order item not found in this order", 404);
+  }
+
+  const resolvedFoodId = getFoodIdFromOrderItem(orderItem);
+  if (!resolvedFoodId) {
+    throw createError("Order item does not have a food reference");
+  }
+
+  if (foodId && resolvedFoodId.toString() !== foodId.toString()) {
+    throw createError("Food does not match this order item");
+  }
+
+  return { orderItem, foodId: resolvedFoodId };
+};
+
+const formatReviewableOrderItem = (orderItem, rating = null) => {
+  const food = orderItem.foodId || orderItem.menuScheduleItemId?.foodId || null;
+  return {
+    orderItemId: orderItem._id.toString(),
+    foodId: food?._id?.toString() || "",
+    foodName: food?.name || "Food",
+    foodImage: food?.imageUrl || null,
+    quantity: orderItem.quantity || 0,
+    unitPrice: orderItem.unitPrice || food?.price || 0,
+    reviewStatus: rating ? "REVIEWED" : "NOT_REVIEWED",
+    review: rating
+      ? {
+          ratingId: rating._id.toString(),
+          stars: rating.stars,
+          comment: rating.comment || "",
+          staffReply: rating.staffReply || null,
+          createdAt: rating.createdAt,
+          updatedAt: rating.updatedAt,
+        }
+      : null,
+  };
+};
+
 const buildFilter = async (query = {}, options = {}) => {
   const filter = {};
   if (options.userId) filter.userId = options.userId;
@@ -200,12 +254,42 @@ const create = async (userId, data = {}) => {
 
   const orderId = getObjectId(data.orderId, "orderId");
   const foodId = getOptionalObjectId(data.foodId, "foodId");
+  const orderItemId = getOptionalObjectId(data.orderItemId, "orderItemId");
   await ensureCompletedOrderForReview(userId, orderId);
-  await ensureFoodBelongsToOrder(orderId, foodId);
 
-  const ratingType = getRatingType(data.ratingType, foodId);
   const stars = getStars(data.stars);
   const comment = getComment(data.comment);
+
+  if (orderItemId) {
+    const resolved = await ensureOrderItemForReview(orderId, orderItemId, foodId);
+    const ratingType = getRatingType(data.ratingType || "FOOD", resolved.foodId);
+    if (ratingType !== "FOOD") {
+      throw createError("orderItemId can only be used for FOOD rating");
+    }
+
+    const duplicate = await Rating.findOne({ userId, orderItemId });
+    if (duplicate) {
+      throw createError("You already reviewed this order item", 409);
+    }
+
+    const rating = await Rating.create({
+      userId,
+      orderId,
+      orderItemId,
+      foodId: resolved.foodId,
+      ratingType,
+      stars,
+      comment,
+    });
+
+    return populateRating(Rating.findById(rating._id));
+  }
+
+  await ensureFoodBelongsToOrder(orderId, foodId);
+  const ratingType = getRatingType(data.ratingType, foodId);
+  if (ratingType === "FOOD") {
+    throw createError("orderItemId is required for FOOD rating");
+  }
 
   const duplicate = await Rating.findOne({
     userId,
@@ -227,6 +311,86 @@ const create = async (userId, data = {}) => {
   });
 
   return populateRating(Rating.findById(rating._id));
+};
+
+const createMany = async (userId, data = {}) => {
+  const orderId = getObjectId(data.orderId, "orderId");
+  if (!Array.isArray(data.reviews) || data.reviews.length === 0) {
+    throw createError("reviews must contain at least one item");
+  }
+
+  await ensureCompletedOrderForReview(userId, orderId);
+
+  const seenOrderItemIds = new Set();
+  const reviewDocs = [];
+
+  for (const item of data.reviews) {
+    const orderItemId = getObjectId(item.orderItemId, "orderItemId");
+    if (seenOrderItemIds.has(orderItemId.toString())) {
+      throw createError("Duplicate orderItemId in reviews payload");
+    }
+    seenOrderItemIds.add(orderItemId.toString());
+
+    const foodId = getOptionalObjectId(item.foodId, "foodId");
+    const stars = getStars(item.stars);
+    const comment = getComment(item.comment);
+    const resolved = await ensureOrderItemForReview(orderId, orderItemId, foodId);
+
+    reviewDocs.push({
+      userId,
+      orderId,
+      orderItemId,
+      foodId: resolved.foodId,
+      ratingType: "FOOD",
+      stars,
+      comment,
+    });
+  }
+
+  const existing = await Rating.find({
+    userId,
+    orderItemId: { $in: [...seenOrderItemIds] },
+  }).select("orderItemId");
+  if (existing.length > 0) {
+    throw createError("One or more order items were already reviewed", 409);
+  }
+
+  const ratings = await Rating.insertMany(reviewDocs, { ordered: true });
+  return populateRating(Rating.find({ _id: { $in: ratings.map((r) => r._id) } }));
+};
+
+const listReviewableItems = async (userId, orderId) => {
+  const validOrderId = getObjectId(orderId, "orderId");
+  await ensureCompletedOrderForReview(userId, validOrderId);
+
+  const [orderItems, ratings] = await Promise.all([
+    OrderItem.find({ orderId: validOrderId })
+      .populate("foodId", "_id name imageUrl price")
+      .populate({
+        path: "menuScheduleItemId",
+        populate: { path: "foodId", select: "_id name imageUrl price" },
+      }),
+    Rating.find({
+      userId,
+      orderId: validOrderId,
+      orderItemId: { $ne: null },
+      isActive: true,
+    }),
+  ]);
+
+  const ratingsByOrderItem = new Map(
+    ratings.map((rating) => [rating.orderItemId.toString(), rating]),
+  );
+
+  return {
+    orderId: validOrderId,
+    items: orderItems.map((item) =>
+      formatReviewableOrderItem(
+        item,
+        ratingsByOrderItem.get(item._id.toString()) || null,
+      ),
+    ),
+  };
 };
 
 
@@ -314,6 +478,15 @@ const list = async (query = {}) => {
       },
     },
     { $unwind: { path: "$orderId", preserveNullAndEmptyArrays: true } },
+    {
+      $lookup: {
+        from: "orderitems",
+        localField: "orderItemId",
+        foreignField: "_id",
+        as: "orderItemId",
+      },
+    },
+    { $unwind: { path: "$orderItemId", preserveNullAndEmptyArrays: true } },
   );
 
   // 3. Handle Keyword search
@@ -356,6 +529,9 @@ const list = async (query = {}) => {
         "orderId.createdAt": 0,
         "orderId.updatedAt": 0,
         "orderId.__v": 0,
+        "orderItemId.createdAt": 0,
+        "orderItemId.updatedAt": 0,
+        "orderItemId.__v": 0,
       },
     },
   );
@@ -405,6 +581,7 @@ const getById = async (id) => {
     },
     { path: "foodId", select: "-createdAt -updatedAt -__v" },
     { path: "orderId", select: "-createdAt -updatedAt -__v" },
+    { path: "orderItemId", select: "-createdAt -updatedAt -__v" },
     {
       path: "repliedBy",
       select: "-passwordHash -isActive -createdAt -updatedAt -__v",
@@ -429,6 +606,7 @@ const updateMineById = async (userId, id, data = {}) => {
   const update = {};
   if (data.stars !== undefined) update.stars = getStars(data.stars);
   if (data.comment !== undefined) update.comment = getComment(data.comment);
+  if (Object.keys(update).length) update.isEdited = true;
   if (!Object.keys(update).length) throw createError("No valid fields to update");
 
   const rating = await Rating.findOneAndUpdate({ _id: id, userId }, update, {
@@ -472,6 +650,8 @@ const replyRating = (id, staffReply, repliedBy) =>
 
 module.exports = {
   create,
+  createMany,
+  listReviewableItems,
   list,
   listMine,
   getById,

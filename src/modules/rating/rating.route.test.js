@@ -8,6 +8,7 @@ const Rating = require("./rating.model");
 const Food = require("../food/food.model");
 const FoodCategory = require("../foodCategory/foodCategory.model");
 const Order = require("../order/order.model");
+const OrderItem = require("../orderItem/orderItem.model");
 const ROLES = require("../../constants/roles.constant");
 const jwt = require("jsonwebtoken");
 
@@ -23,6 +24,7 @@ beforeEach(async () => {
   await Food.deleteMany({});
   await FoodCategory.deleteMany({});
   await Order.deleteMany({});
+  await OrderItem.deleteMany({});
 });
 
 const createTestUser = async (role, email = "user@test.com") => {
@@ -484,6 +486,193 @@ describe("GET /api/v1/ratings", () => {
       const rating = await Rating.findById(res.body.data._id);
       expect(rating.staffReply).toBeFalsy(); // Should ignore injection
       expect(rating.userId.toString()).not.toBe(fakeUserId.toString()); // Should override with logged in user ID
+    });
+
+    it("should create separate food ratings for separate order items", async () => {
+      const category = await FoodCategory.create({
+        name: "Meals",
+        description: "Main meals",
+      });
+      const rice = await Food.create({
+        name: "Chicken Rice",
+        categoryId: category._id,
+        price: 30000,
+      });
+      const tea = await Food.create({
+        name: "Milk Tea",
+        categoryId: category._id,
+        price: 15000,
+      });
+      const order = await Order.create({
+        userId: customerTokenUserId,
+        orderCode: "ITEM-RATING",
+        status: "COMPLETED",
+        totalPrice: 45000,
+        paymentStatus: "PAID",
+        paymentMethod: "CASH",
+      });
+      const riceItem = await OrderItem.create({
+        orderId: order._id,
+        itemType: "REGULAR_FOOD",
+        foodId: rice._id,
+        quantity: 1,
+        unitPrice: 30000,
+        subtotal: 30000,
+      });
+      const teaItem = await OrderItem.create({
+        orderId: order._id,
+        itemType: "REGULAR_FOOD",
+        foodId: tea._id,
+        quantity: 1,
+        unitPrice: 15000,
+        subtotal: 15000,
+      });
+
+      const res = await request(app)
+        .post("/api/v1/ratings/bulk")
+        .set("Authorization", `Bearer ${customerToken}`)
+        .send({
+          orderId: order._id,
+          reviews: [
+            {
+              orderItemId: riceItem._id,
+              stars: 5,
+              comment: "Rice is great",
+            },
+            {
+              orderItemId: teaItem._id,
+              stars: 2,
+              comment: "Tea is too sweet",
+            },
+          ],
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data).toHaveLength(2);
+
+      const ratings = await Rating.find({ orderId: order._id }).sort({
+        stars: -1,
+      });
+      expect(ratings).toHaveLength(2);
+      expect(ratings[0].foodId.toString()).toBe(rice._id.toString());
+      expect(ratings[0].comment).toBe("Rice is great");
+      expect(ratings[1].foodId.toString()).toBe(tea._id.toString());
+      expect(ratings[1].comment).toBe("Tea is too sweet");
+    });
+
+    it("should reject duplicate review for the same order item", async () => {
+      const category = await FoodCategory.create({ name: "Drinks" });
+      const food = await Food.create({
+        name: "Iced Tea",
+        categoryId: category._id,
+        price: 8000,
+      });
+      const order = await Order.create({
+        userId: customerTokenUserId,
+        orderCode: "DUP-ITEM",
+        status: "COMPLETED",
+        totalPrice: 8000,
+        paymentStatus: "PAID",
+        paymentMethod: "CASH",
+      });
+      const orderItem = await OrderItem.create({
+        orderId: order._id,
+        itemType: "REGULAR_FOOD",
+        foodId: food._id,
+        quantity: 2,
+        unitPrice: 8000,
+        subtotal: 16000,
+      });
+
+      await Rating.create({
+        userId: customerTokenUserId,
+        orderId: order._id,
+        orderItemId: orderItem._id,
+        foodId: food._id,
+        ratingType: "FOOD",
+        stars: 4,
+        comment: "Good",
+      });
+
+      const res = await request(app)
+        .post("/api/v1/ratings")
+        .set("Authorization", `Bearer ${customerToken}`)
+        .send({
+          orderId: order._id,
+          orderItemId: orderItem._id,
+          stars: 5,
+          comment: "Again",
+        });
+
+      expect(res.status).toBe(409);
+    });
+
+    it("should list review status for every order item", async () => {
+      const category = await FoodCategory.create({ name: "Meals" });
+      const reviewedFood = await Food.create({
+        name: "Pork Rice",
+        categoryId: category._id,
+        price: 32000,
+      });
+      const pendingFood = await Food.create({
+        name: "Soup",
+        categoryId: category._id,
+        price: 12000,
+      });
+      const order = await Order.create({
+        userId: customerTokenUserId,
+        orderCode: "REVIEWABLE",
+        status: "COMPLETED",
+        totalPrice: 44000,
+        paymentStatus: "PAID",
+        paymentMethod: "CASH",
+      });
+      const reviewedItem = await OrderItem.create({
+        orderId: order._id,
+        itemType: "REGULAR_FOOD",
+        foodId: reviewedFood._id,
+        quantity: 1,
+        unitPrice: 32000,
+        subtotal: 32000,
+      });
+      await OrderItem.create({
+        orderId: order._id,
+        itemType: "REGULAR_FOOD",
+        foodId: pendingFood._id,
+        quantity: 1,
+        unitPrice: 12000,
+        subtotal: 12000,
+      });
+      await Rating.create({
+        userId: customerTokenUserId,
+        orderId: order._id,
+        orderItemId: reviewedItem._id,
+        foodId: reviewedFood._id,
+        ratingType: "FOOD",
+        stars: 5,
+        comment: "Nice",
+      });
+
+      const res = await request(app)
+        .get(`/api/v1/ratings/order/${order._id}/items`)
+        .set("Authorization", `Bearer ${customerToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.items).toHaveLength(2);
+      expect(
+        res.body.data.items.some(
+          (item) =>
+            item.foodName === "Pork Rice" &&
+            item.reviewStatus === "REVIEWED",
+        ),
+      ).toBe(true);
+      expect(
+        res.body.data.items.some(
+          (item) =>
+            item.foodName === "Soup" &&
+            item.reviewStatus === "NOT_REVIEWED",
+        ),
+      ).toBe(true);
     });
   });
 
