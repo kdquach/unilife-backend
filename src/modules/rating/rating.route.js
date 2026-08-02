@@ -16,10 +16,16 @@ router.get(
 
 // Customer creates a new rating
 router.post("/", authorize(ROLES.CUSTOMER), controller.create);
+router.post("/bulk", authorize(ROLES.CUSTOMER), controller.createMany);
 
 // Customer views their own ratings
 router.get("/me", authorize(ROLES.CUSTOMER), controller.listMine);
 router.get("/me/:id", authorize(ROLES.CUSTOMER), controller.getMineById);
+router.get(
+  "/order/:orderId/items",
+  authorize(ROLES.CUSTOMER),
+  controller.listReviewableItems,
+);
 
 // Staff (COUNTER_STAFF, MANAGER, ADMIN) views a specific rating detail
 router.get(

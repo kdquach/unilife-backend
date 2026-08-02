@@ -14,6 +14,31 @@ const dateOnly = (value) => {
   return String(value || "").slice(0, 10);
 };
 
+const getDocumentId = (value) => value?._id || value || null;
+
+const buildMenuInventoryMetadata = ({
+  action,
+  source,
+  schedule,
+  itemId,
+  food,
+  ingredient,
+  servingCount,
+  quantityPerServing,
+}) => ({
+  source,
+  action,
+  menuScheduleId: getDocumentId(schedule),
+  menuScheduleItemId: itemId || null,
+  foodId: getDocumentId(food),
+  foodName: food?.name || null,
+  menuDate: schedule?.date ? dateOnly(schedule.date) : null,
+  servingCount,
+  quantityPerServing,
+  ingredientName: ingredient?.name || null,
+  ingredientUnit: ingredient?.unit || null,
+});
+
 const create = async (data, user) => {
   const { menuScheduleId, foodId, maxServing } = data;
   
@@ -61,6 +86,7 @@ const create = async (data, user) => {
       }));
 
       const finalMaxServing = Math.max(0, parseInt(maxServing) || 0);
+      const itemId = new mongoose.Types.ObjectId();
       const deductedBatches = [];
 
       // Sort A-Z to prevent deadlock
@@ -91,8 +117,20 @@ const create = async (data, user) => {
           const adjData = {
             adjustmentType: "DECREASE",
             quantity: totalQty,
-            reason: `Deducted for Menu Schedule: ${schedule.date.toISOString().split('T')[0]}`,
-            referenceType: "MENU_SCHEDULE",
+            transactionType: "MENU_USAGE",
+            reason: `Used for menu item "${food.name}" on ${dateOnly(schedule.date)}`,
+            referenceType: "MENU_SCHEDULE_ITEM",
+            referenceId: itemId,
+            metadata: buildMenuInventoryMetadata({
+              action: "CREATE_MENU_ITEM",
+              source: "MENU_SCHEDULE_ITEM",
+              schedule,
+              itemId,
+              food,
+              ingredient: ingDoc,
+              servingCount: finalMaxServing,
+              quantityPerServing: r.quantityPerServing,
+            }),
           };
           try {
             const res = await ingredientService.adjustStock(ingId, adjData, user, session);
@@ -116,6 +154,7 @@ const create = async (data, user) => {
       }
 
       const cleanData = {
+        _id: itemId,
         menuScheduleId,
         foodId,
         maxServing: finalMaxServing,
@@ -219,6 +258,7 @@ const createBulk = async (data, user) => {
         }));
 
         const finalMaxServing = Math.max(0, parseInt(maxServing) || 0);
+        const itemId = new mongoose.Types.ObjectId();
         const deductedBatches = [];
 
         recipe.sort((a, b) => {
@@ -248,8 +288,20 @@ const createBulk = async (data, user) => {
             const adjData = {
               adjustmentType: "DECREASE",
               quantity: totalQty,
-              reason: `Deducted for Menu Schedule: ${schedule.date.toISOString().split('T')[0]}`,
-              referenceType: "MENU_SCHEDULE",
+              transactionType: "MENU_USAGE",
+              reason: `Used for menu item "${foodName}" on ${dateOnly(schedule.date)}`,
+              referenceType: "MENU_SCHEDULE_ITEM",
+              referenceId: itemId,
+              metadata: buildMenuInventoryMetadata({
+                action: "CREATE_MENU_ITEM_BULK",
+                source: "MENU_SCHEDULE_ITEM",
+                schedule,
+                itemId,
+                food,
+                ingredient: ingDoc,
+                servingCount: finalMaxServing,
+                quantityPerServing: r.quantityPerServing,
+              }),
             };
             try {
               const res = await ingredientService.adjustStock(ingId, adjData, user, session);
@@ -273,6 +325,7 @@ const createBulk = async (data, user) => {
         }
 
         docsToCreate.push({
+          _id: itemId,
           menuScheduleId,
           foodId,
           maxServing: finalMaxServing,
@@ -343,6 +396,9 @@ const getById = (id) =>
 const performRefund = async (item, refundQuantity, user, session) => {
   if (refundQuantity <= 0) return;
   
+  const schedule = item.menuScheduleId;
+  const food = await Food.findById(item.foodId).session(session);
+  const foodName = food?.name || "Menu item";
   const recipe = item.recipeSnapshot || [];
   recipe.sort((a, b) => String(a.ingredientId).localeCompare(String(b.ingredientId)));
 
@@ -350,8 +406,9 @@ const performRefund = async (item, refundQuantity, user, session) => {
     let qtyToRefund = r.quantityPerServing * refundQuantity;
     if (qtyToRefund <= 0) continue;
 
+    const ingredient = await Ingredient.findById(r.ingredientId).session(session);
     // Find batches deducted for this ingredient, process in reverse to refund newest deductions first
-    const ingredientBatches = item.deductedBatches
+    const ingredientBatches = (item.deductedBatches || [])
       .filter((b) => String(b.ingredientId) === String(r.ingredientId))
       .reverse();
 
@@ -363,8 +420,20 @@ const performRefund = async (item, refundQuantity, user, session) => {
           adjustmentType: "INCREASE",
           quantity: refundFromThisBatch,
           batchId: b.batchId,
-          reason: `Refunded from Menu Schedule (Reduced/Cancelled)`,
-          referenceType: "MENU_SCHEDULE_REFUND",
+          transactionType: "STOCK_IN",
+          reason: `Returned from menu item "${foodName}" after reduced or cancelled servings`,
+          referenceType: "MENU_SCHEDULE_ITEM",
+          referenceId: item._id,
+          metadata: buildMenuInventoryMetadata({
+            action: "REFUND_MENU_ITEM_STOCK",
+            source: "MENU_SCHEDULE_ITEM",
+            schedule,
+            itemId: item._id,
+            food,
+            ingredient,
+            servingCount: refundQuantity,
+            quantityPerServing: r.quantityPerServing,
+          }),
         };
         await ingredientService.adjustStock(r.ingredientId, adjData, user, session);
         b.quantity -= refundFromThisBatch;
@@ -374,12 +443,13 @@ const performRefund = async (item, refundQuantity, user, session) => {
   }
 
   // Clean up batches with 0 quantity
-  item.deductedBatches = item.deductedBatches.filter((b) => b.quantity > 0);
+  item.deductedBatches = (item.deductedBatches || []).filter((b) => b.quantity > 0);
 };
 
 const performIncrease = async (item, increaseQuantity, user, session) => {
   if (increaseQuantity <= 0) return;
 
+  const schedule = item.menuScheduleId;
   const food = await Food.findById(item.foodId).session(session);
   const foodName = food ? food.name : "Món ăn";
 
@@ -406,12 +476,25 @@ const performIncrease = async (item, increaseQuantity, user, session) => {
       const adjData = {
         adjustmentType: "DECREASE",
         quantity: totalQty,
-        reason: `Deducted for Menu Schedule Increase`,
-        referenceType: "MENU_SCHEDULE",
+        transactionType: "MENU_USAGE",
+        reason: `Used for menu item "${foodName}" after serving increase`,
+        referenceType: "MENU_SCHEDULE_ITEM",
+        referenceId: item._id,
+        metadata: buildMenuInventoryMetadata({
+          action: "INCREASE_MENU_ITEM_SERVINGS",
+          source: "MENU_SCHEDULE_ITEM",
+          schedule,
+          itemId: item._id,
+          food,
+          ingredient,
+          servingCount: increaseQuantity,
+          quantityPerServing: r.quantityPerServing,
+        }),
       };
       try {
         const res = await ingredientService.adjustStock(r.ingredientId, adjData, user, session);
         const affected = res.transaction.metadata.affectedBatches;
+        if (!Array.isArray(item.deductedBatches)) item.deductedBatches = [];
         for (const batch of affected) {
           // Find existing batch entry or add new
           const existingBatch = item.deductedBatches.find(

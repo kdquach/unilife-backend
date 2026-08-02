@@ -20,9 +20,17 @@ const ratingSchema = new mongoose.Schema(
       required: false,
       index: true,
     },
+    orderItemId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "OrderItem",
+      required: false,
+      index: true,
+    },
     ratingType: { type: String },
     stars: { type: Number, default: 0 },
-    comment: { type: String, default: null },
+    comment: { type: String, trim: true, maxlength: 500, default: null },
+    isEdited: { type: Boolean, default: false },
+    isActive: { type: Boolean, default: true },
     staffReply: { type: String, default: null },
     repliedBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -42,5 +50,15 @@ const ratingSchema = new mongoose.Schema(
 ratingSchema.virtual("ratingId").get(function () {
   return this._id.toString();
 });
+
+ratingSchema.index(
+  { userId: 1, orderItemId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      orderItemId: { $type: "objectId" },
+    },
+  },
+);
 
 module.exports = mongoose.model("Rating", ratingSchema);

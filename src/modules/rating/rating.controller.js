@@ -10,9 +10,22 @@ const mongoose = require("mongoose");
 const create = asyncHandler(async (req, res) => {
   // Prevent mass assignment
   const { staffReply, repliedBy, repliedAt, userId, ...ratingData } = req.body;
-  
+
   const newRating = await service.create(req.user._id, ratingData);
   return success(res, newRating, "Created successfully", 201);
+});
+
+const createMany = asyncHandler(async (req, res) => {
+  const result = await service.createMany(req.user._id, req.body);
+  return success(res, result, "Created successfully", 201);
+});
+
+const listReviewableItems = asyncHandler(async (req, res) => {
+  const result = await service.listReviewableItems(
+    req.user._id,
+    req.params.orderId,
+  );
+  return success(res, result, "Get reviewable items successfully");
 });
 
 /**
@@ -140,4 +153,15 @@ const getMineById = asyncHandler(async (req, res) => {
   return success(res, item, "Get my rating detail successfully");
 });
 
-module.exports = { create, list, listMine, getById, getMineById, updateById, deleteById, reply };
+module.exports = {
+  create,
+  createMany,
+  listReviewableItems,
+  list,
+  listMine,
+  getById,
+  getMineById,
+  updateById,
+  deleteById,
+  reply,
+};
