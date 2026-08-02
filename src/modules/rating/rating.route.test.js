@@ -180,6 +180,57 @@ describe("GET /api/v1/ratings", () => {
       expect(res.body.data.items[0].ratingType).toBe("FOOD");
     });
 
+    it("should filter by foodId without returning other food ratings in the same order", async () => {
+      const category = await FoodCategory.create({
+        name: "Drinks",
+        description: "Drink items",
+      });
+      const milkTea = await Food.create({
+        name: "Milk Tea",
+        categoryId: category._id,
+        price: 15000,
+      });
+
+      await OrderItem.create([
+        {
+          orderId: order._id,
+          itemType: "REGULAR_FOOD",
+          foodId: food._id,
+          quantity: 1,
+          unitPrice: 50000,
+          subtotal: 50000,
+        },
+        {
+          orderId: order._id,
+          itemType: "REGULAR_FOOD",
+          foodId: milkTea._id,
+          quantity: 1,
+          unitPrice: 15000,
+          subtotal: 15000,
+        },
+      ]);
+
+      await Rating.create({
+        userId: customer._id,
+        orderId: order._id,
+        foodId: milkTea._id,
+        ratingType: "FOOD",
+        stars: 2,
+        comment: "Milk tea is too sweet",
+      });
+
+      const res = await request(app)
+        .get(`/api/v1/ratings?foodId=${food._id}`)
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.items).toHaveLength(1);
+      expect(res.body.data.items[0].foodId._id.toString()).toBe(
+        food._id.toString(),
+      );
+      expect(res.body.data.items[0].comment).toBe("Very delicious");
+    });
+
     it("should not crash if keyword contains regex special characters", async () => {
       const res = await request(app)
         .get("/api/v1/ratings?keyword=hello(")
@@ -438,10 +489,91 @@ describe("GET /api/v1/ratings", () => {
         expect(updatedRating.repliedBy).toBeDefined();
         expect(updatedRating.repliedAt).toBeDefined();
       });
-    });
   });
+});
 
-  describe("POST /api/v1/ratings", () => {
+describe("GET /api/v1/ratings/me", () => {
+  it("should filter my ratings by foodId without returning another food in the same order", async () => {
+    const { user: customer, token } = await createTestUser(
+      ROLES.CUSTOMER,
+      "customer-filter@test.com",
+    );
+    const category = await FoodCategory.create({
+      name: "Drinks",
+      description: "Drink items",
+    });
+    const food = await Food.create({
+      name: "nehehhe",
+      categoryId: category._id,
+      price: 555,
+      status: "AVAILABLE",
+    });
+    const milkTea = await Food.create({
+      name: "Milk Tea",
+      categoryId: category._id,
+      price: 20000,
+      status: "AVAILABLE",
+    });
+    const order = await Order.create({
+      userId: customer._id,
+      orderCode: "FOOD-FILTER",
+      status: "COMPLETED",
+      totalPrice: 20555,
+      paymentStatus: "PAID",
+      paymentMethod: "CASH",
+    });
+    const foodItem = await OrderItem.create({
+      orderId: order._id,
+      itemType: "REGULAR_FOOD",
+      foodId: food._id,
+      quantity: 1,
+      unitPrice: 555,
+      subtotal: 555,
+    });
+    const milkTeaItem = await OrderItem.create({
+      orderId: order._id,
+      itemType: "REGULAR_FOOD",
+      foodId: milkTea._id,
+      quantity: 1,
+      unitPrice: 20000,
+      subtotal: 20000,
+    });
+
+    await Rating.create([
+      {
+        userId: customer._id,
+        orderId: order._id,
+        orderItemId: foodItem._id,
+        foodId: food._id,
+        ratingType: "FOOD",
+        stars: 5,
+        comment: "hehe 5 sao",
+      },
+      {
+        userId: customer._id,
+        orderId: order._id,
+        orderItemId: milkTeaItem._id,
+        foodId: milkTea._id,
+        ratingType: "FOOD",
+        stars: 2,
+        comment: "milk tea 2 sao",
+      },
+    ]);
+
+    const res = await request(app)
+      .get(`/api/v1/ratings/me?foodId=${food._id}`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.items).toHaveLength(1);
+    expect(res.body.data.items[0].foodId._id.toString()).toBe(
+      food._id.toString(),
+    );
+    expect(res.body.data.items[0].comment).toBe("hehe 5 sao");
+  });
+});
+
+describe("POST /api/v1/ratings", () => {
     let customerToken;
     let customerTokenUserId;
     beforeEach(async () => {

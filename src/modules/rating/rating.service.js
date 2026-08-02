@@ -6,7 +6,6 @@ require("../menuScheduleItem/menuScheduleItem.model");
 const Rating = require("./rating.model");
 const Order = require("../order/order.model");
 const OrderItem = require("../orderItem/orderItem.model");
-const MenuScheduleItem = require("../menuScheduleItem/menuScheduleItem.model");
 const { getPagination } = require("../../utils/pagination.util");
 const { getVietnamDayRange } = require("../../utils/date.util");
 const createError = (message, statusCode = 400) => {
@@ -216,25 +215,7 @@ const buildFilter = async (query = {}, options = {}) => {
 
   const foodId = getOptionalObjectId(query.foodId, "foodId");
   if (foodId) {
-    const menuScheduleItemIds = await MenuScheduleItem.find({ foodId })
-      .distinct("_id");
-    const orderIds = await OrderItem.find({
-      $or: [
-        { foodId },
-        ...(menuScheduleItemIds.length
-          ? [{ menuScheduleItemId: { $in: menuScheduleItemIds } }]
-          : []),
-      ],
-    }).distinct("orderId");
-    const relatedOrderIds = orderIds.filter(Boolean);
-    addAndClause(filter, {
-      $or: [
-        { foodId },
-        ...(relatedOrderIds.length
-          ? [{ orderId: { $in: relatedOrderIds } }]
-          : []),
-      ],
-    });
+    addAndClause(filter, { foodId });
   }
 
   if (query.ratingType) filter.ratingType = query.ratingType;
@@ -407,6 +388,12 @@ const list = async (query = {}) => {
 
   // 1. Initialize base filter (Pre-lookup match)
   const initialMatch = {};
+  const foodId = getOptionalObjectId(query.foodId, "foodId");
+  if (foodId) initialMatch.foodId = new mongoose.Types.ObjectId(foodId);
+
+  const orderId = getOptionalObjectId(query.orderId, "orderId");
+  if (orderId) initialMatch.orderId = new mongoose.Types.ObjectId(orderId);
+
   if (query.type) initialMatch.ratingType = query.type;
   if (query.stars) {
     const parsedStars = parseInt(query.stars, 10);
