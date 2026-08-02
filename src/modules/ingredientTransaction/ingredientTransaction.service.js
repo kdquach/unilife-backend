@@ -3,6 +3,7 @@ require("../ingredient/ingredient.model");
 require("../ingredientBatch/ingredientBatch.model");
 require("../user/user.model");
 const IngredientTransaction = require("./ingredientTransaction.model");
+const Ingredient = require("../ingredient/ingredient.model");
 const { getPagination } = require("../../utils/pagination.util");
 
 const create = (data) => IngredientTransaction.create(data);
@@ -103,13 +104,19 @@ const list = async (query = {}) => {
 
   const keyword = (query.keyword || query.q || query.search || "").trim();
   if (keyword) {
-    const regex = new RegExp(escapeRegExp(keyword), "i");
-    filter.$or = [
-      { transactionType: regex },
-      { referenceType: regex },
-      { reason: regex },
-    ];
-  }
+  const regex = new RegExp(escapeRegExp(keyword), "i");
+
+  const ingredientIds = await Ingredient.find({
+    name: regex,
+  }).distinct("_id");
+
+  filter.$or = [
+    { transactionType: regex },
+    { referenceType: regex },
+    { reason: regex },
+    { ingredientId: { $in: ingredientIds } },
+  ];
+}
 
   const createdAt = {};
   const dateFrom = getDate(query.dateFrom, "dateFrom");
