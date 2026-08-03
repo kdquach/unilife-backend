@@ -20,10 +20,31 @@ const OTP_PURPOSES = Object.freeze({
   FORGOT_PASSWORD: "FORGOT_PASSWORD",
 });
 
+const DASHBOARD_AUDIENCE = "DASHBOARD";
+const DASHBOARD_ALLOWED_ROLES = new Set([
+  ROLES.ADMIN,
+  ROLES.MANAGER,
+  ROLES.COUNTER_STAFF,
+  ROLES.KITCHEN_STAFF,
+]);
+const DASHBOARD_ACCESS_MESSAGE =
+  "This dashboard is only available to canteen staff and managers. Customer accounts cannot reset passwords here.";
+
 const hashToken = (token) =>
   crypto.createHash("sha256").update(token).digest("hex");
 const daysFromNow = (days) => new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
+
+const ensureDashboardPasswordResetAccess = (user, audience) => {
+  if (
+    audience === DASHBOARD_AUDIENCE &&
+    !DASHBOARD_ALLOWED_ROLES.has(user.role)
+  ) {
+    const err = new Error(DASHBOARD_ACCESS_MESSAGE);
+    err.statusCode = 403;
+    throw err;
+  }
+};
 
 const toSafeUser = (user) => ({
   id: user._id,
@@ -252,23 +273,25 @@ const logout = async (userId) => {
   return true;
 };
 
-const requestForgotPasswordOtp = async ({ email }) => {
+const requestForgotPasswordOtp = async ({ email, audience }) => {
   const user = await User.findOne({ email: normalizeEmail(email) });
   if (!user || !user.isActive || user.isEmailVerified === false) return true;
 
+  ensureDashboardPasswordResetAccess(user, audience);
   await issueForgotPasswordOtp(user);
   return true;
 };
 
-const resendForgotPasswordOtp = async ({ email }) => {
+const resendForgotPasswordOtp = async ({ email, audience }) => {
   const user = await User.findOne({ email: normalizeEmail(email) });
   if (!user || !user.isActive || user.isEmailVerified === false) return true;
 
+  ensureDashboardPasswordResetAccess(user, audience);
   await issueForgotPasswordOtp(user);
   return true;
 };
 
-const resetPassword = async ({ email, otp, newPassword }) => {
+const resetPassword = async ({ email, otp, newPassword, audience }) => {
   const user = await User.findOne({ email: normalizeEmail(email) }).select(
     "+passwordHash",
   );
@@ -278,6 +301,7 @@ const resetPassword = async ({ email, otp, newPassword }) => {
     throw err;
   }
 
+  ensureDashboardPasswordResetAccess(user, audience);
   const matchedOtp = await findValidOtp(
     user._id,
     OTP_PURPOSES.FORGOT_PASSWORD,
