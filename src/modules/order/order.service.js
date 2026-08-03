@@ -150,8 +150,21 @@ const create = async (data) => {
         }
       }
 
-      // Update order's total price
+      // Update order's total price and payment info
       order.totalPrice = totalPrice;
+
+      if (order.paymentMethod === "SEPAY") {
+        const sepayConfig = getSepayConfig();
+        const transferContent = generateTransferContent(order.orderCode);
+        order.transferContent = transferContent;
+        order.paymentInfo = {
+          bankName: sepayConfig.bankName,
+          accountNumber: sepayConfig.bankAccountNumber,
+          accountName: sepayConfig.accountName,
+          qrCodeUrl: generateQrCodeUrl(totalPrice, transferContent),
+        };
+      }
+
       await order.save({ session });
       
       createdOrder = order;

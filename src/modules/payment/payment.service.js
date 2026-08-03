@@ -132,7 +132,7 @@ const processWebhook = async (webhookData) => {
 
   // 2. Try regex match on content for UN pattern
   if (!order && content) {
-    const match = content.match(/UN(\d+)/i);
+    const match = content.match(/UN([a-zA-Z0-9-]+)/i);
     if (match) {
       const extractedCode = `UN${match[1]}`.toUpperCase();
       order = await Order.findOne({ transferContent: extractedCode });
