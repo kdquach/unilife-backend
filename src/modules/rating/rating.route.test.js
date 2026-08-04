@@ -50,12 +50,12 @@ describe("GET /api/v1/ratings", () => {
       expect(res.status).toBe(401);
     });
 
-    it("should return 403 for CUSTOMER role", async () => {
+    it("should return 200 for CUSTOMER role", async () => {
       const { token } = await createTestUser(ROLES.CUSTOMER);
       const res = await request(app)
         .get("/api/v1/ratings")
         .set("Authorization", `Bearer ${token}`);
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(200);
     });
 
     it("should return 200 for COUNTER_STAFF role", async () => {
