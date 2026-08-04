@@ -242,6 +242,32 @@ describe("Payment Service - Webhook & Cron Jobs", () => {
     expect(updatedOrder.paymentInfo.qrCodeUrl).toBeNull();
   });
 
+  it("should update note with Invalid transfer content if order is not found but a recent Online/Walk-In PENDING order exists", async () => {
+    const recentOnlineOrder = await Order.create({
+      orderCode: "ON-2026-001",
+      status: "PENDING",
+      totalPrice: 45000,
+      paymentMethod: "SEPAY",
+      paymentStatus: "PENDING",
+      transferContent: "UNON2026001",
+      isWalkIn: false,
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+    });
+
+    const webhookData = {
+      content: "Chuyen tien sai noidung UNXXXXXX",
+      transferAmount: 45000,
+      transferType: "in",
+    };
+
+    const result = await paymentService.processWebhook(webhookData);
+    expect(result.message).toContain("Invalid transfer content for recent pending order");
+
+    const updatedOrder = await Order.findById(recentOnlineOrder._id);
+    expect(updatedOrder.paymentStatus).toBe("PENDING");
+    expect(updatedOrder.note).toContain('Error: Invalid transfer content. Received: "Chuyen tien sai noidung UNXXXXXX", Expected: "UNON2026001". Order not confirmed.');
+  });
+
   it("should expire pending orders and restore stock securely", async () => {
     // Create food with 0 stock
     const food = await Food.create({

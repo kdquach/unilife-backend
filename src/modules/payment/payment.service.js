@@ -143,6 +143,32 @@ const processWebhook = async (webhookData) => {
   }
 
   if (!order) {
+    // Look for recent pending order (online or walk-in) whose 15-minute expiry window is still active
+    const now = new Date();
+    const recentPendingOrder = await Order.findOne({
+      paymentStatus: "PENDING",
+      expiresAt: { $gt: now },
+    }).sort({ createdAt: -1 });
+
+    if (recentPendingOrder) {
+      const noteMsg = `Error: Invalid transfer content. Received: "${content}", Expected: "${recentPendingOrder.transferContent}". Order not confirmed.`;
+      await Order.updateOne(
+        { _id: recentPendingOrder._id },
+        {
+          $set: {
+            note: recentPendingOrder.note
+              ? `${recentPendingOrder.note} | ${noteMsg}`
+              : noteMsg,
+          },
+        },
+      );
+      return {
+        success: true,
+        message:
+          "Invalid transfer content for recent pending order. Note updated.",
+      };
+    }
+
     return { success: true, message: "Order not found for this transfer" };
   }
 
