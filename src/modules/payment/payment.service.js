@@ -214,7 +214,7 @@ const processWebhook = async (webhookData) => {
     {
       $set: {
         paymentStatus: "PAID",
-        status: "CONFIRMED",
+        status: order.isWalkIn ? "COMPLETED" : "CONFIRMED",
         paidAt: new Date(),
         transactionRef: referenceCode || String(transactionId || ""),
         "paymentInfo.qrCodeUrl": null,
