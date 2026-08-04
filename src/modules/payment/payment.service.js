@@ -43,7 +43,8 @@ const generateQrCodeUrl = (amount, transferContent) => {
  * @returns {string} Transfer content (e.g., UN234199)
  */
 const generateTransferContent = (orderCode) => {
-  return `UN${orderCode}`;
+  // Strip hyphens because bank transfers/NAPAS often remove special characters
+  return `UN${orderCode}`.replace(/-/g, "");
 };
 
 /**
@@ -122,9 +123,10 @@ const processWebhook = async (webhookData) => {
 
   // 1. Try finding by extracted code from SePay payload if available
   if (webhookData.code) {
+    const cleanCode = webhookData.code.toUpperCase().replace(/-/g, "");
     order = await Order.findOne({
       $or: [
-        { transferContent: webhookData.code.toUpperCase() },
+        { transferContent: cleanCode },
         { orderCode: webhookData.code },
       ],
     });
@@ -132,7 +134,8 @@ const processWebhook = async (webhookData) => {
 
   // 2. Try regex match on content for UN pattern
   if (!order && content) {
-    const match = content.match(/UN(\d+)/i);
+    const cleanContent = content.replace(/-/g, ""); // Strip hyphens before regex matching
+    const match = cleanContent.match(/UN([a-zA-Z0-9]+)/i);
     if (match) {
       const extractedCode = `UN${match[1]}`.toUpperCase();
       order = await Order.findOne({ transferContent: extractedCode });

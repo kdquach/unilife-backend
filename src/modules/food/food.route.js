@@ -34,6 +34,7 @@ router.get("/filter", controller.filter);
 router.get("/search", controller.search);
 router.get("/", controller.list);
 // get food detail 
+router.get("/daily", controller.getDailyFoods);
 router.get("/:id", controller.getById);
 
 router.post(

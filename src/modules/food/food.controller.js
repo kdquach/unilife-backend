@@ -79,6 +79,14 @@ const filterOptions = asyncHandler(async (req, res) =>
   ),
 );
 
+const getDailyFoods = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.getDailyFoods(req.query),
+    "Get daily foods successfully",
+  ),
+);
+
 const getById = asyncHandler(async (req, res) => {
   const food = await service.getById(req.params.id);
   if (!food) {
@@ -118,6 +126,7 @@ module.exports = {
   search,
   filter,
   filterOptions,
+  getDailyFoods,
   getById,
   getByIdForKitchen,
   updateById,

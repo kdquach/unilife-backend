@@ -475,6 +475,35 @@ const getFilterOptions = async (query = {}) => {
 
 const getKitchenFilterOptions = (query = {}) => getFilterOptions(query);
 
+const getDailyFoods = async (query = {}) => {
+  const { page, limit, skip } = getPagination(query);
+
+  const filter = {
+    isMenuItem: false,
+    isActive: true,
+  };
+
+  const [items, total] = await Promise.all([
+    Food.find(filter)
+      .populate("categoryId", "name")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit),
+
+    Food.countDocuments(filter),
+  ]);
+
+  return {
+    items,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+};
+
 const getById = async (id) =>
   attachIngredientsToFood(
     await Food.findById(id).populate("categoryId", "name isActive"),
@@ -527,6 +556,7 @@ module.exports = {
   filter,
   getFilterOptions,
   getKitchenFilterOptions,
+  getDailyFoods,
   getById,
   getByIdForKitchen,
   updateById,
