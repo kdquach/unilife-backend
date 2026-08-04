@@ -10,7 +10,7 @@ const router = express.Router();
 router.use(authenticate);
 router.get(
   "/",
-  authorize(ROLES.COUNTER_STAFF, ROLES.MANAGER, ROLES.ADMIN),
+  authorize(ROLES.CUSTOMER, ROLES.COUNTER_STAFF, ROLES.MANAGER, ROLES.ADMIN),
   controller.list,
 );
 
