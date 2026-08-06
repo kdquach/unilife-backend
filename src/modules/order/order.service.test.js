@@ -239,7 +239,7 @@ describe("Order Service - Scan Pickup QR", () => {
 });
 
 describe("Order Service - Cancel Order", () => {
-  it("should allow cancelling a PAID order regardless of creation time", async () => {
+  it("should allow cancelling a PAID order regardless of creation time and trigger refund", async () => {
     const order = await Order.create({
       userId: new mongoose.Types.ObjectId(),
       createdBy: new mongoose.Types.ObjectId(),
@@ -255,11 +255,11 @@ describe("Order Service - Cancel Order", () => {
     const updatedOrder = await orderService.updateById(order._id, { status: "CANCELLED" });
 
     expect(updatedOrder.status).toBe("CANCELLED");
-    expect(updatedOrder.paymentStatus).toBe("REFUND_PENDING");
+    expect(updatedOrder.paymentStatus).toBe("REFUNDED");
 
     const savedOrder = await Order.findById(order._id);
     expect(savedOrder.status).toBe("CANCELLED");
-    expect(savedOrder.paymentStatus).toBe("REFUND_PENDING");
+    expect(savedOrder.paymentStatus).toBe("REFUNDED");
+    expect(savedOrder.refundAmount).toBe(30000);
   });
 });
-

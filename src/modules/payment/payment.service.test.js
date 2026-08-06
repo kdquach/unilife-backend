@@ -312,8 +312,35 @@ describe("Payment Service - Webhook & Cron Jobs", () => {
     const updatedFood = await Food.findById(food._id);
     expect(updatedFood.stockQuantity).toBe(5);
 
-    // Verify queue cancelled
+    // Verify queue skipped/cancelled
     const updatedQueue = await Queue.findOne({ orderId: order._id });
     expect(updatedQueue.status).toBe("CANCELLED");
+  });
+
+  describe("processRefund", () => {
+    it("should return invalid refund amount if order.totalPrice is 0 or invalid", async () => {
+      const result = await paymentService.processRefund({ totalPrice: 0 });
+      expect(result.success).toBe(false);
+      expect(result.refunded).toBe(false);
+    });
+
+    it("should process automated refund successfully and update order fields", async () => {
+      const order = await Order.create({
+        orderCode: "UL-REFUND-001",
+        status: "CANCELLED",
+        totalPrice: 45000,
+        paymentMethod: "SEPAY",
+        paymentStatus: "PAID",
+      });
+
+      const result = await paymentService.processRefund(order);
+      expect(result.success).toBe(true);
+      expect(result.refunded).toBe(true);
+
+      expect(order.paymentStatus).toBe("REFUNDED");
+      expect(order.refundAmount).toBe(45000);
+      expect(order.refundTransactionRef).toBeDefined();
+      expect(order.refundedAt).toBeDefined();
+    });
   });
 });

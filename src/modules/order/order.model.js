@@ -31,6 +31,9 @@ const orderSchema = new mongoose.Schema(
     expiresAt: { type: Date, default: null },
     paidAt: { type: Date, default: null },
     transactionRef: { type: String, default: null },
+    refundedAt: { type: Date, default: null },
+    refundTransactionRef: { type: String, default: null },
+    refundAmount: { type: Number, default: null },
   },
   {
     toJSON: { virtuals: true },
