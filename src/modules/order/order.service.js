@@ -19,17 +19,22 @@ const { isSameVietnamDay } = require("../../utils/date.util");
 
 const PAYMENT_EXPIRY_MINUTES = 15;
 
-/**
- * Generate order code: 6-digit numeric string (e.g., 234199)
- */
+
+
+const generateRandom = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
 const generateOrderCode = async () => {
-  let code;
+  let orderCode;
   let exists = true;
+
   while (exists) {
-    code = Math.floor(100000 + Math.random() * 900000).toString();
-    exists = await Order.findOne({ orderCode: code });
+    orderCode = generateRandom();
+    exists = await Order.exists({ orderCode });
   }
-  return code;
+
+  return orderCode;
 };
 
 const create = async (data) => {
@@ -39,15 +44,18 @@ const create = async (data) => {
 
   try {
     await session.withTransaction(async () => {
-      // Validate and deduct stock for each item first
+      // Validate và trừ stock
       if (items && Array.isArray(items)) {
         for (const item of items) {
           if (item.itemType === "MENU_ITEM" || !item.itemType) {
             if (!item.menuScheduleItemId) {
-              const error = new Error("Menu schedule item ID is required for menu items.");
+              const error = new Error(
+                "Menu schedule item ID is required for menu items."
+              );
               error.statusCode = 400;
               throw error;
             }
+
             const menuScheduleItem = await MenuScheduleItem.findOneAndUpdate(
               {
                 _id: item.menuScheduleItemId,
@@ -61,38 +69,49 @@ const create = async (data) => {
               },
               { new: true, session }
             );
-            
+
             if (!menuScheduleItem) {
-              const error = new Error(`Insufficient servings remaining for menu item.`);
+              const error = new Error(
+                "Insufficient servings remaining for menu item."
+              );
               error.statusCode = 400;
               throw error;
             }
           } else if (item.itemType === "REGULAR_FOOD") {
             if (!item.foodId) {
-              const error = new Error("Food ID is required for regular food items.");
+              const error = new Error(
+                "Food ID is required for regular food items."
+              );
               error.statusCode = 400;
               throw error;
             }
-            
+
             const food = await Food.findById(item.foodId).session(session);
+
             if (!food) {
               const error = new Error("Food item not found.");
               error.statusCode = 404;
               throw error;
             }
-            
+
             if (food.stockQuantity !== null) {
               const result = await Food.findOneAndUpdate(
                 {
                   _id: food._id,
                   stockQuantity: { $gte: item.quantity },
                 },
-                { $inc: { stockQuantity: -item.quantity } },
+                {
+                  $inc: {
+                    stockQuantity: -item.quantity,
+                  },
+                },
                 { new: true, session }
               );
-              
+
               if (!result) {
-                const error = new Error(`Insufficient stock for food item ${food.name}.`);
+                const error = new Error(
+                  `Insufficient stock for food item ${food.name}.`
+                );
                 error.statusCode = 400;
                 throw error;
               }
@@ -101,23 +120,27 @@ const create = async (data) => {
         }
       }
 
-      // Generate order code
-      const count = await Order.countDocuments().session(session);
-      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-      const prefix = data.isWalkIn ? "UL-WI" : "UL-PO";
+      const orderCode = await generateOrderCode("WI");
 
-      const orderCode = `${prefix}-${dateStr}-${String(count + 1).padStart(4, "0")}`;
+      const isCash = paymentMethod === "CASH";
 
-      // Create the order document
-      const [order] = await Order.create([{
-        ...orderData,
-        orderCode,
-        status: paymentMethod === "CASH" ? "PAID" : "PENDING_PAYMENT",
-        paymentMethod: paymentMethod || "SEPAY",
-        paymentStatus: paymentMethod === "CASH" ? "PAID" : "PENDING",
-        transferContent: paymentMethod === "CASH" ? undefined : orderData.transferContent,
-        totalPrice: 0,
-      }], { session });
+      const [order] = await Order.create(
+        [
+          {
+            ...orderData,
+            orderCode,
+            status: isCash ? "CONFIRMED" : "PENDING_PAYMENT",
+            paymentMethod: paymentMethod || "SEPAY",
+            paymentStatus: isCash ? "PAID" : "PENDING",
+            paidAt: isCash ? new Date() : null,
+            transferContent: isCash
+              ? undefined
+              : orderData.transferContent,
+            totalPrice: 0,
+          },
+        ],
+        { session }
+      );
 
       let totalPrice = 0;
 
@@ -131,31 +154,39 @@ const create = async (data) => {
           } else {
             const menuScheduleItem = await MenuScheduleItem.findById(
               item.menuScheduleItemId
-            ).populate("foodId").session(session);
+            )
+              .populate("foodId")
+              .session(session);
+
             unitPrice = menuScheduleItem.foodId.price;
           }
 
           const subtotal = unitPrice * item.quantity;
           totalPrice += subtotal;
 
-          await OrderItem.create([{
-            orderId: order._id,
-            itemType: item.itemType || "MENU_ITEM",
-            menuScheduleItemId: item.menuScheduleItemId || undefined,
-            foodId: item.foodId || undefined,
-            quantity: item.quantity,
-            unitPrice,
-            subtotal,
-          }], { session });
+          await OrderItem.create(
+            [
+              {
+                orderId: order._id,
+                itemType: item.itemType || "MENU_ITEM",
+                menuScheduleItemId: item.menuScheduleItemId || undefined,
+                foodId: item.foodId || undefined,
+                quantity: item.quantity,
+                unitPrice,
+                subtotal,
+              },
+            ],
+            { session }
+          );
         }
       }
 
-      // Update order's total price and payment info
       order.totalPrice = totalPrice;
 
-      if (order.paymentMethod === "SEPAY") {
+      if (!isCash) {
         const sepayConfig = getSepayConfig();
         const transferContent = generateTransferContent(order.orderCode);
+
         order.transferContent = transferContent;
         order.paymentInfo = {
           bankName: sepayConfig.bankName,
@@ -166,14 +197,13 @@ const create = async (data) => {
       }
 
       await order.save({ session });
-      
+
       createdOrder = order;
     });
   } finally {
     await session.endSession();
   }
 
-  // Retrieve populated order
   return getById(createdOrder._id);
 };
 
@@ -349,7 +379,7 @@ const checkout = async (userId, data = {}) => {
   }
 
   // Generate order code and transfer content
-  const orderCode = await generateOrderCode();
+  const orderCode = await generateOrderCode("ON");
   const transferContent = generateTransferContent(orderCode);
 
   // Generate payment info
