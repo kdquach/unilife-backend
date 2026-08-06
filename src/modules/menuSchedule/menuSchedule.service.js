@@ -217,14 +217,60 @@ const getMenuScheduleByIdForStaff = async (id, query = {}) => {
   return schedule;
 };
 
-const getToday = async () => {
+const getToday = async (query = {}) => {
   await autoCompletePastSchedules();
+
+  const page = Number(query.page) || 1;
+  const limit = Number(query.limit) || 10;
+  const skip = (page - 1) * limit;
+
   const { start, end } = getVietnamDayRange();
 
-  return MenuSchedule.findOne({
-    date: { $gte: start, $lte: end },
+  const menu = await MenuSchedule.findOne({
+    date: {
+      $gte: start,
+      $lte: end,
+    },
     status: "PUBLISHED",
-  }).populate(getPopulateItemsOption());
+  });
+
+  if (!menu) {
+    const error = new Error("Today's menu schedule not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const total = await MenuScheduleItem.countDocuments({
+    menuScheduleId: menu._id,
+    isActive: true,
+  });
+
+  const items = await MenuScheduleItem.find({
+    menuScheduleId: menu._id,
+    isActive: true,
+  })
+    .populate({
+      path: "foodId",
+      populate: {
+        path: "categoryId",
+        select: "name",
+      },
+    })
+    .skip(skip)
+    .limit(limit);
+
+  return {
+    menuSchedule: {
+      ...menu.toObject(),
+    },
+    items,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
 };
 
 const getById = async (id) => {
