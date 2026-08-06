@@ -354,96 +354,6 @@ const expirePendingOrders = async () => {
   return { success: true, expiredCount };
 };
 
-/**
- * Process automated refund via SePay / Bank Gateway API
- * @param {Object} order - Order document to be refunded
- * @returns {Promise<Object>} Refund result object { success, refunded, transactionRef, message }
- */
-const processRefund = async (order) => {
-  if (!order || !order.totalPrice || order.totalPrice <= 0) {
-    return { success: false, refunded: false, message: "Invalid refund amount" };
-  }
-
-  const config = getSepayConfig();
-  const refundAmount = order.totalPrice;
-
-  try {
-    const apiBaseUrl = process.env.SEPAY_API_BASE_URL || "https://my.sepay.vn";
-    const apiKey = config.apiKey;
-
-    let refundSuccess = false;
-    let refundRef = `REFUND-${order.orderCode}-${Date.now()}`;
-
-    if (process.env.NODE_ENV === "test") {
-      refundSuccess = true;
-    } else if (apiKey && apiKey !== "replace_with_sepay_api_key") {
-      const response = await fetch(`${apiBaseUrl}/userapi/payout/send`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          amount: refundAmount,
-          orderCode: order.orderCode,
-          transactionRef: order.transactionRef,
-          description: `Refund for cancelled order #${order.orderCode}`,
-        }),
-      }).catch((err) => {
-        logger.error(`SePay Payout API HTTP error: ${err.message}`);
-        return null;
-      });
-
-      if (response && response.ok) {
-        const data = await response.json();
-        if (data.status === 200 || data.success || data.id) {
-          refundSuccess = true;
-          if (data.id || data.referenceCode) {
-            refundRef = String(data.id || data.referenceCode);
-          }
-        }
-      }
-    } else {
-      // Development / sandbox / default mode: simulate successful automated refund
-      refundSuccess = true;
-    }
-
-    if (refundSuccess) {
-      order.paymentStatus = "REFUNDED";
-      order.refundedAt = new Date();
-      order.refundTransactionRef = refundRef;
-      order.refundAmount = refundAmount;
-      const noteMsg = `[REFUND_SUCCESS] Automatically refunded ${refundAmount} VND (Ref: ${refundRef}).`;
-      order.note = order.note ? `${order.note} | ${noteMsg}` : noteMsg;
-
-      return {
-        success: true,
-        refunded: true,
-        transactionRef: refundRef,
-        message: `Refund of ${refundAmount} VND processed successfully.`,
-      };
-    } else {
-      order.paymentStatus = "REFUND_PENDING";
-      const noteMsg = `[REFUND_FAILED] Automated payout failed. Marked as REFUND_PENDING for manual intervention.`;
-      order.note = order.note ? `${order.note} | ${noteMsg}` : noteMsg;
-
-      return {
-        success: false,
-        refunded: false,
-        message: "Automated refund failed, marked as REFUND_PENDING for admin review.",
-      };
-    }
-  } catch (error) {
-    logger.error(`Error processing refund for order ${order.orderCode}:`, error);
-    order.paymentStatus = "REFUND_PENDING";
-    return {
-      success: false,
-      refunded: false,
-      message: error.message,
-    };
-  }
-};
-
 module.exports = {
   getSepayConfig,
   generateQrCodeUrl,
@@ -451,5 +361,4 @@ module.exports = {
   verifyWebhookAuth,
   processWebhook,
   expirePendingOrders,
-  processRefund,
 };

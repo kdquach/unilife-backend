@@ -13,7 +13,6 @@ const {
   generateTransferContent,
   generateQrCodeUrl,
   getSepayConfig,
-  processRefund,
 } = require("../payment/payment.service");
 const User = require("../user/user.model");
 const { isSameVietnamDay } = require("../../utils/date.util");
@@ -438,26 +437,15 @@ const getPaymentStatus = async (orderId, userId) => {
 };
 
 const scanPickupQr = async (data = {}) => {
-  let orderCode = data.orderCode;
-  if (!orderCode && data.qrPayload) {
-    try {
-      const parsed =
-        typeof data.qrPayload === "string"
-          ? JSON.parse(data.qrPayload)
-          : data.qrPayload;
-      orderCode = parsed.orderCode;
-    } catch (err) {
-      // ignore
-    }
-  }
-
-  if (!orderCode) {
+  if (!data.orderCode) {
     const error = new Error("Order code is required.");
     error.statusCode = 400;
     throw error;
   }
 
-  const result = await queueService.scanOrderQr({ orderCode });
+  const result = await queueService.scanOrderQr({
+    orderCode: data.orderCode,
+  });
 
   return {
     created: result.created,
@@ -570,21 +558,17 @@ const updateById = async (id, data) => {
     }
 
     if (order.paymentStatus === "PAID") {
-      await processRefund(order);
+      order.paymentStatus = "REFUND_PENDING";
     }
 
     order.status = "CANCELLED";
     await order.save();
 
     if (order.userId) {
-      const refundNotice =
-        order.paymentStatus === "REFUNDED"
-          ? " Your payment has been refunded."
-          : "";
       await userNotificationService
         .notifyUser(order.userId, {
           title: "Order cancelled",
-          body: `Order #${order.orderCode} has been cancelled.${refundNotice}`,
+          body: `Order #${order.orderCode} has been cancelled.`,
           type: "ORDER_CANCELLED",
           createdBy: order.userId,
         })
