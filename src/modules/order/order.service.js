@@ -437,15 +437,26 @@ const getPaymentStatus = async (orderId, userId) => {
 };
 
 const scanPickupQr = async (data = {}) => {
-  if (!data.orderCode) {
+  let orderCode = data.orderCode;
+  if (!orderCode && data.qrPayload) {
+    try {
+      const parsed =
+        typeof data.qrPayload === "string"
+          ? JSON.parse(data.qrPayload)
+          : data.qrPayload;
+      orderCode = parsed.orderCode;
+    } catch (err) {
+      // ignore
+    }
+  }
+
+  if (!orderCode) {
     const error = new Error("Order code is required.");
     error.statusCode = 400;
     throw error;
   }
 
-  const result = await queueService.scanOrderQr({
-    orderCode: data.orderCode,
-  });
+  const result = await queueService.scanOrderQr({ orderCode });
 
   return {
     created: result.created,
