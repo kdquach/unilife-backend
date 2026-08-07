@@ -188,6 +188,9 @@ const create = async (data) => {
         const transferContent = generateTransferContent(order.orderCode);
 
         order.transferContent = transferContent;
+        order.expiresAt = new Date(
+          Date.now() + PAYMENT_EXPIRY_MINUTES * 60 * 1000
+        );
         order.paymentInfo = {
           bankName: sepayConfig.bankName,
           accountNumber: sepayConfig.bankAccountNumber,
