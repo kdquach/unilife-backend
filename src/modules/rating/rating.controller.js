@@ -38,6 +38,11 @@ const list = asyncHandler(async (req, res) => {
   return success(res, result, "Get list successfully");
 });
 
+const listPublic = asyncHandler(async (req, res) => {
+  const result = await service.listPublic(req.query);
+  return success(res, result, "Get public ratings successfully");
+});
+
 /**
  * @desc    Get detailed information of a rating by ID
  * @route   GET /api/v1/ratings/:id
@@ -158,6 +163,7 @@ module.exports = {
   createMany,
   listReviewableItems,
   list,
+  listPublic,
   listMine,
   getById,
   getMineById,
