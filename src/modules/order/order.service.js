@@ -462,6 +462,7 @@ const getPaymentStatus = async (orderId, userId) => {
     totalPrice: order.totalPrice,
     transferContent: order.transferContent,
     paymentInfo: order.paymentInfo,
+    note: order.note,
     expiresAt: order.expiresAt,
     paidAt: order.paidAt,
     transactionRef: order.transactionRef,

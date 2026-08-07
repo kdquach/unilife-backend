@@ -145,7 +145,10 @@ const processWebhook = async (webhookData) => {
   if (!order) {
     // Look for recent pending order (online or walk-in)
     const recentPendingOrder = await Order.findOne({
-      paymentStatus: "PENDING",
+      $or: [
+        { paymentStatus: "PENDING" },
+        { status: "PENDING_PAYMENT" },
+      ],
       status: { $nin: ["CANCELLED", "COMPLETED"] },
     }).sort({ createdAt: -1 });
 
