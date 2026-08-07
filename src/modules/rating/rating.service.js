@@ -554,6 +554,32 @@ const listMine = async (userId, query = {}) => {
   };
 };
 
+const listPublic = async (query = {}) => {
+  const { page, limit, skip } = getPagination(query);
+  const foodId = getObjectId(query.foodId, "foodId");
+  const filter = {
+    foodId,
+    ratingType: "FOOD",
+    isActive: true,
+  };
+
+  const [items, total] = await Promise.all([
+    Rating.find(filter)
+      .select("ratingType stars comment staffReply userId foodId createdAt updatedAt")
+      .populate("userId", "fullName avatarUrl")
+      .populate("foodId", "name imageUrl price")
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 }),
+    Rating.countDocuments(filter),
+  ]);
+
+  return {
+    items,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  };
+};
+
 /**
  * Get detailed rating by ID
  * Populates relationships and excludes sensitive fields
@@ -640,6 +666,7 @@ module.exports = {
   createMany,
   listReviewableItems,
   list,
+  listPublic,
   listMine,
   getById,
   getMineById,

@@ -231,6 +231,21 @@ describe("GET /api/v1/ratings", () => {
       expect(res.body.data.items[0].comment).toBe("Very delicious");
     });
 
+    it("should allow guests to view public food comments by foodId", async () => {
+      const res = await request(app).get(`/api/v1/ratings?foodId=${food._id}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.items).toHaveLength(1);
+
+      const publicRating = res.body.data.items[0];
+      expect(publicRating.comment).toBe("Very delicious");
+      expect(publicRating.stars).toBe(5);
+      expect(publicRating.userId.fullName).toBe("John Doe");
+      expect(publicRating.userId.email).toBeUndefined();
+      expect(publicRating.orderId).toBeUndefined();
+    });
+
     it("should not crash if keyword contains regex special characters", async () => {
       const res = await request(app)
         .get("/api/v1/ratings?keyword=hello(")

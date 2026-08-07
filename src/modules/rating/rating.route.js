@@ -7,12 +7,17 @@ const ROLES = require("../../constants/roles.constant");
 
 const router = express.Router();
 
-router.use(authenticate);
 router.get(
   "/",
+  (req, res, next) => {
+    if (req.query.foodId) return controller.listPublic(req, res, next);
+    return authenticate(req, res, next);
+  },
   authorize(ROLES.CUSTOMER, ROLES.COUNTER_STAFF, ROLES.MANAGER, ROLES.ADMIN),
   controller.list,
 );
+
+router.use(authenticate);
 
 // Customer creates a new rating
 router.post("/", authorize(ROLES.CUSTOMER), controller.create);
