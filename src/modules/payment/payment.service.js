@@ -143,15 +143,10 @@ const processWebhook = async (webhookData) => {
   }
 
   if (!order) {
-    // Look for recent pending order (online or walk-in) whose 15-minute expiry window is still active
-    const now = new Date();
-    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+    // Look for recent pending order (online or walk-in)
     const recentPendingOrder = await Order.findOne({
       paymentStatus: "PENDING",
-      $or: [
-        { expiresAt: { $gt: now } },
-        { expiresAt: null, createdAt: { $gte: fifteenMinutesAgo } },
-      ],
+      status: { $nin: ["CANCELLED", "COMPLETED"] },
     }).sort({ createdAt: -1 });
 
     if (recentPendingOrder) {
