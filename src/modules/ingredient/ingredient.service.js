@@ -262,9 +262,19 @@ const assertAllowedStockAdjustmentFields = (data = {}) => {
   }
 };
 
-const assertFutureDate = (date, fieldName) => {
-  if (date <= new Date()) {
-    throw createError(`${fieldName} must be in the future`);
+const isPastDate = (date) => {
+  const value = new Date(date);
+  value.setHours(0, 0, 0, 0);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return value < today;
+};
+
+const assertNotPastDate = (date, fieldName) => {
+  if (isPastDate(date)) {
+    throw createError(`${fieldName} cannot be in the past`);
   }
 };
 
@@ -550,7 +560,7 @@ const increaseBatchStock = async (ingredient, adjustment, data, session) => {
     if (supplierId) batch.supplierId = supplierId;
     if (unitPrice !== undefined) batch.unitPrice = unitPrice;
     if (expiryDate) {
-      assertFutureDate(expiryDate, "expiryDate");
+      assertNotPastDate(expiryDate, "expiryDate");
       await assertNoBatchWithExpiryDate(
         ingredient._id,
         expiryDate,
@@ -577,7 +587,7 @@ const increaseBatchStock = async (ingredient, adjustment, data, session) => {
   if (!expiryDate) {
     throw createError("expiryDate is required for a new stock batch");
   }
-  assertFutureDate(expiryDate, "expiryDate");
+  assertNotPastDate(expiryDate, "expiryDate");
   await assertNoBatchWithExpiryDate(ingredient._id, expiryDate, session);
 
   const [batch] = await IngredientBatch.create(
@@ -818,9 +828,7 @@ const recordStockImport = async (id, data = {}, user = null) => {
 
   const quantity = getNumber(data.quantity, "quantity", { positive: true });
   const expiryDate = getRequiredDate(data.expiryDate, "expiryDate");
-  if (expiryDate <= new Date()) {
-    throw createError("expiryDate must be in the future");
-  }
+  assertNotPastDate(expiryDate, "expiryDate");
 
   const unitPrice = getOptionalNumber(data.unitPrice, "unitPrice", {
     nonNegative: true,
