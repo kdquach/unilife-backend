@@ -69,7 +69,7 @@ describe("Menu Schedule Edge Cases", () => {
     const res = await request(app)
       .post("/api/v1/menu-schedules")
       .set("Authorization", `Bearer ${adminToken}`)
-      .send({ date: pastDate, status: "DRAFT" });
+      .send({ date: pastDate });
 
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/Cannot create menu schedule for past dates/i);

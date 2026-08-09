@@ -26,15 +26,15 @@ const generateRandom = () => {
 };
 
 const generateOrderCode = async () => {
-  let orderCode;
-  let exists = true;
-
-  while (exists) {
-    orderCode = generateRandom();
-    exists = await Order.exists({ orderCode });
+  const MAX_ATTEMPTS = 10;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const orderCode = generateRandom();
+    const exists = await Order.exists({ orderCode });
+    if (!exists) return orderCode;
   }
-
-  return orderCode;
+  const error = new Error("Failed to generate a unique order code after maximum attempts");
+  error.statusCode = 500;
+  throw error;
 };
 
 const create = async (data) => {
@@ -602,20 +602,36 @@ const updateById = async (id, data) => {
       throw error;
     }
 
+    // Atomic CAS: prevent double-cancel race condition
+    const cancelUpdate = { status: "CANCELLED" };
     if (order.paymentStatus === "PAID") {
-      order.paymentStatus = "REFUND_PENDING";
+      cancelUpdate.paymentStatus = "REFUND_PENDING";
     }
 
-    order.status = "CANCELLED";
-    await order.save();
+    const cancelledOrder = await Order.findOneAndUpdate(
+      {
+        _id: id,
+        status: { $nin: ["COMPLETED", "CANCELLED", "EXPIRED"] },
+      },
+      { $set: cancelUpdate },
+      { new: true, runValidators: true }
+    ).populate("items");
 
-    if (order.userId) {
+    if (!cancelledOrder) {
+      const error = new Error(
+        "Order was already cancelled or completed by another request.",
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+
+    if (cancelledOrder.userId) {
       await userNotificationService
-        .notifyUser(order.userId, {
+        .notifyUser(cancelledOrder.userId, {
           title: "Order cancelled",
-          body: `Order #${order.orderCode} has been cancelled.`,
+          body: `Order #${cancelledOrder.orderCode} has been cancelled.`,
           type: "ORDER_CANCELLED",
-          createdBy: order.userId,
+          createdBy: cancelledOrder.userId,
         })
         .catch(() => null);
     }
@@ -623,27 +639,21 @@ const updateById = async (id, data) => {
     // Move any kitchen queue entry out of the active flow.
     await Queue.updateOne({ orderId: id }, { $set: { status: "SKIPPED" } });
 
-    // Restore stock/servings
-    if (order.items && Array.isArray(order.items)) {
-      for (const item of order.items) {
+    // Restore stock/servings atomically
+    if (cancelledOrder.items && Array.isArray(cancelledOrder.items)) {
+      for (const item of cancelledOrder.items) {
         if (item.itemType === "MENU_ITEM" && item.menuScheduleItemId) {
-          const menuScheduleItem = await MenuScheduleItem.findById(
-            item.menuScheduleItemId,
-          );
-          if (menuScheduleItem) {
-            menuScheduleItem.remainingCount += item.quantity;
-            menuScheduleItem.reservedCount = Math.max(
-              0,
-              menuScheduleItem.reservedCount - item.quantity,
-            );
-            await menuScheduleItem.save();
-          }
+          await MenuScheduleItem.findByIdAndUpdate(item.menuScheduleItemId, {
+            $inc: {
+              remainingCount: item.quantity,
+              reservedCount: -item.quantity,
+            },
+          });
         } else if (item.itemType === "REGULAR_FOOD" && item.foodId) {
-          const food = await Food.findById(item.foodId);
-          if (food && food.stockQuantity !== null) {
-            food.stockQuantity += item.quantity;
-            await food.save();
-          }
+          await Food.findOneAndUpdate(
+            { _id: item.foodId, stockQuantity: { $ne: null } },
+            { $inc: { stockQuantity: item.quantity } }
+          );
         }
       }
     }

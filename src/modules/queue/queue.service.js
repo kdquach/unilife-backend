@@ -266,12 +266,26 @@ const scanOrderQr = async (payload = {}) => {
   // ============================
   const scannedAt = new Date();
 
-  queue = await Queue.create({
-    orderId: order._id,
-    queueNumber: await getNextQueueNumber(scannedAt),
-    status: "WAITING",
-    scannedAt,
-  });
+  try {
+    queue = await Queue.create({
+      orderId: order._id,
+      queueNumber: await getNextQueueNumber(scannedAt),
+      status: "WAITING",
+      scannedAt,
+    });
+  } catch (err) {
+    // Handle race condition: another request created the queue entry first
+    if (err.code === 11000) {
+      queue = await Queue.findOne({ orderId: order._id });
+      if (queue) {
+        return {
+          queue: await getPopulatedById(queue._id),
+          created: false,
+        };
+      }
+    }
+    throw err;
+  }
 
   if (order.status === "PAID") {
     order.status = "CONFIRMED";
