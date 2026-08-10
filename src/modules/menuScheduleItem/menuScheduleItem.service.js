@@ -96,62 +96,59 @@ const create = async (data, user) => {
         return idA.localeCompare(idB);
       });
 
-      for (const r of recipe) {
-        const totalQty = r.quantityPerServing * finalMaxServing;
-        if (totalQty > 0) {
-          const ingId = r.ingredientId._id || r.ingredientId;
-          const ingDoc = r.ingredientId._id ? r.ingredientId : await Ingredient.findById(ingId).session(session);
-          const ingName = ingDoc?.name || "Nguyên liệu";
-          const ingUnit = ingDoc?.unit || "";
-          const currentStock = ingDoc?.currentStock !== undefined ? ingDoc.currentStock : 0;
+     const insufficientIngredients = [];
 
-          if (currentStock < totalQty) {
-            const shortage = totalQty - currentStock;
-            const error = new Error(
-              `Insufficient ingredient "${ingName}" for food "${food.name}". Required: ${totalQty} ${ingUnit}, Available in stock: ${currentStock} ${ingUnit} (Shortage: ${shortage} ${ingUnit})`
-            );
-            error.statusCode = 400;
-            throw error;
-          }
+for (const recipeItem of recipe) {
+  const ingredient = await Ingredient.findById(
+    recipeItem.ingredientId
+  ).session(session);
 
-          const adjData = {
-            adjustmentType: "DECREASE",
-            quantity: totalQty,
-            transactionType: "MENU_USAGE",
-            reason: `Used for menu item "${food.name}" on ${dateOnly(schedule.date)}`,
-            referenceType: "MENU_SCHEDULE_ITEM",
-            referenceId: itemId,
-            metadata: buildMenuInventoryMetadata({
-              action: "CREATE_MENU_ITEM",
-              source: "MENU_SCHEDULE_ITEM",
-              schedule,
-              itemId,
-              food,
-              ingredient: ingDoc,
-              servingCount: finalMaxServing,
-              quantityPerServing: r.quantityPerServing,
-            }),
-          };
-          try {
-            const res = await ingredientService.adjustStock(ingId, adjData, user, session);
-            const affected = res.transaction.metadata.affectedBatches;
-            for (const batch of affected) {
-              deductedBatches.push({
-                ingredientId: ingId,
-                batchId: batch.batchId,
-                quantity: Math.abs(batch.quantity),
-              });
-            }
-          } catch (err) {
-            const shortage = Math.max(0, totalQty - currentStock);
-            const error = new Error(
-              `Insufficient ingredient "${ingName}" for food "${food.name}". Required: ${totalQty} ${ingUnit}, Available in stock: ${currentStock} ${ingUnit}${shortage > 0 ? ` (Shortage: ${shortage} ${ingUnit})` : ''}`
-            );
-            error.statusCode = 400;
-            throw error;
-          }
-        }
-      }
+  if (!ingredient) {
+    const error = new Error(
+      `Ingredient not found: ${recipeItem.ingredientId}`
+    );
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const requiredQuantity =
+    recipeItem.quantityPerServing * finalMaxServing;
+
+  const availableQuantity = ingredient.currentStock || 0;
+
+  if (availableQuantity < requiredQuantity) {
+    insufficientIngredients.push({
+      name: ingredient.name,
+      required: requiredQuantity,
+      available: availableQuantity,
+      shortage: requiredQuantity - availableQuantity,
+      unit: ingredient.unit || "kg",
+    });
+
+    // Không throw ở đây
+    continue;
+  }
+
+  // Chỉ deduct sau khi kiểm tra tất cả nguyên liệu
+}
+
+if (insufficientIngredients.length > 0) {
+  const details = insufficientIngredients
+    .map(
+      (item) =>
+        `"${item.name}" - Required: ${item.required} ${item.unit}, ` +
+        `Available: ${item.available} ${item.unit}, ` +
+        `Shortage: ${item.shortage} ${item.unit}`
+    )
+    .join("; ");
+
+  const error = new Error(
+    `Insufficient ingredients for food "${food.name}": ${details}`
+  );
+
+  error.statusCode = 400;
+  throw error;
+}
 
       const cleanData = {
         _id: itemId,
@@ -243,111 +240,245 @@ const createBulk = async (data, user) => {
       schedule.increment();
       await schedule.save({ session });
 
-      const docsToCreate = [];
 
-      for (const itemData of items) {
-        const foodId = itemData.foodId;
-        const maxServing = itemData.maxServing;
-        const food = foundFoods.find(f => String(f._id) === String(foodId));
-        const foodName = food ? food.name : "Món ăn";
+const docsToCreate = [];
 
-        const recipe = await FoodIngredient.find({ foodId }).populate("ingredientId").session(session);
-        const recipeSnapshot = recipe.map((r) => ({
-          ingredientId: r.ingredientId._id || r.ingredientId,
-          quantityPerServing: r.quantityPerServing,
-        }));
+// Gom lỗi của TẤT CẢ món
+const insufficientFoods = [];
 
-        const finalMaxServing = Math.max(0, parseInt(maxServing) || 0);
-        const itemId = new mongoose.Types.ObjectId();
-        const deductedBatches = [];
+for (const itemData of items) {
+  const foodId = itemData.foodId;
+  const maxServing = itemData.maxServing;
 
-        recipe.sort((a, b) => {
-          const idA = a.ingredientId._id ? String(a.ingredientId._id) : String(a.ingredientId);
-          const idB = b.ingredientId._id ? String(b.ingredientId._id) : String(b.ingredientId);
-          return idA.localeCompare(idB);
-        });
+  const food = foundFoods.find(
+    (f) => String(f._id) === String(foodId)
+  );
 
-        for (const r of recipe) {
-          const totalQty = r.quantityPerServing * finalMaxServing;
-          if (totalQty > 0) {
-            const ingId = r.ingredientId._id || r.ingredientId;
-            const ingDoc = r.ingredientId._id ? r.ingredientId : await Ingredient.findById(ingId).session(session);
-            const ingName = ingDoc?.name || "Nguyên liệu";
-            const ingUnit = ingDoc?.unit || "";
-            const currentStock = ingDoc?.currentStock !== undefined ? ingDoc.currentStock : 0;
+  const foodName = food ? food.name : "Món ăn";
 
-            if (currentStock < totalQty) {
-              const shortage = totalQty - currentStock;
-              const error = new Error(
-                `Insufficient ingredient "${ingName}" for food "${foodName}". Required: ${totalQty} ${ingUnit}, Available in stock: ${currentStock} ${ingUnit} (Shortage: ${shortage} ${ingUnit})`
-              );
-              error.statusCode = 400;
-              throw error;
-            }
+  const recipe = await FoodIngredient.find({ foodId })
+    .populate("ingredientId")
+    .session(session);
 
-            const adjData = {
-              adjustmentType: "DECREASE",
-              quantity: totalQty,
-              transactionType: "MENU_USAGE",
-              reason: `Used for menu item "${foodName}" on ${dateOnly(schedule.date)}`,
-              referenceType: "MENU_SCHEDULE_ITEM",
-              referenceId: itemId,
-              metadata: buildMenuInventoryMetadata({
-                action: "CREATE_MENU_ITEM_BULK",
-                source: "MENU_SCHEDULE_ITEM",
-                schedule,
-                itemId,
-                food,
-                ingredient: ingDoc,
-                servingCount: finalMaxServing,
-                quantityPerServing: r.quantityPerServing,
-              }),
-            };
-            try {
-              const res = await ingredientService.adjustStock(ingId, adjData, user, session);
-              const affected = res.transaction.metadata.affectedBatches;
-              for (const batch of affected) {
-                deductedBatches.push({
-                  ingredientId: ingId,
-                  batchId: batch.batchId,
-                  quantity: Math.abs(batch.quantity),
-                });
-              }
-            } catch (err) {
-              const shortage = Math.max(0, totalQty - currentStock);
-              const error = new Error(
-                `Insufficient ingredient "${ingName}" for food "${foodName}". Required: ${totalQty} ${ingUnit}, Available in stock: ${currentStock} ${ingUnit}${shortage > 0 ? ` (Shortage: ${shortage} ${ingUnit})` : ''}`
-              );
-              error.statusCode = 400;
-              throw error;
-            }
-          }
-        }
+  const recipeSnapshot = recipe.map((r) => ({
+    ingredientId: r.ingredientId._id || r.ingredientId,
+    quantityPerServing: r.quantityPerServing,
+  }));
 
-        docsToCreate.push({
-          _id: itemId,
-          menuScheduleId,
-          foodId,
-          maxServing: finalMaxServing,
-          isActive: itemData.isActive !== undefined ? itemData.isActive : true,
-          remainingCount: finalMaxServing,
-          reservedCount: 0,
-          servedCount: 0,
-          recipeSnapshot,
-          deductedBatches,
+  const finalMaxServing = Math.max(
+    0,
+    parseInt(maxServing) || 0
+  );
+
+  const itemId = new mongoose.Types.ObjectId();
+  const deductedBatches = [];
+
+  // Sort A-Z để tránh deadlock
+  recipe.sort((a, b) => {
+    const idA = a.ingredientId._id
+      ? String(a.ingredientId._id)
+      : String(a.ingredientId);
+
+    const idB = b.ingredientId._id
+      ? String(b.ingredientId._id)
+      : String(b.ingredientId);
+
+    return idA.localeCompare(idB);
+  });
+
+  // ==========================================
+  // THIẾU NGUYÊN LIỆU CỦA RIÊNG MÓN NÀY
+  // ==========================================
+  const insufficientIngredients = [];
+
+  // ==========================================
+  // 1. KIỂM TRA TẤT CẢ NGUYÊN LIỆU
+  // ==========================================
+  for (const r of recipe) {
+    const totalQty =
+      r.quantityPerServing * finalMaxServing;
+
+    if (totalQty <= 0) {
+      continue;
+    }
+
+    const ingId =
+      r.ingredientId._id || r.ingredientId;
+
+    const ingDoc = r.ingredientId._id
+      ? r.ingredientId
+      : await Ingredient.findById(ingId).session(session);
+
+    const ingName =
+      ingDoc?.name || "Nguyên liệu";
+
+    const ingUnit =
+      ingDoc?.unit || "kg";
+
+    const currentStock =
+      ingDoc?.currentStock !== undefined
+        ? ingDoc.currentStock
+        : 0;
+
+    if (currentStock < totalQty) {
+      insufficientIngredients.push({
+        name: ingName,
+        required: totalQty,
+        available: currentStock,
+        shortage: totalQty - currentStock,
+        unit: ingUnit,
+      });
+
+      continue;
+    }
+  }
+
+  // ==========================================
+  // 2. MÓN NÀY THIẾU NGUYÊN LIỆU
+  // ==========================================
+  if (insufficientIngredients.length > 0) {
+    insufficientFoods.push({
+      foodName,
+      ingredients: insufficientIngredients,
+    });
+
+    // Không deduct
+    // Không tạo MenuScheduleItem
+    // Tiếp tục kiểm tra món tiếp theo
+    continue;
+  }
+
+  // ==========================================
+  // 3. MÓN ĐỦ NGUYÊN LIỆU -> DEDUCT
+  // ==========================================
+  for (const r of recipe) {
+    const totalQty =
+      r.quantityPerServing * finalMaxServing;
+
+    if (totalQty <= 0) {
+      continue;
+    }
+
+    const ingId =
+      r.ingredientId._id || r.ingredientId;
+
+    const ingDoc = r.ingredientId._id
+      ? r.ingredientId
+      : await Ingredient.findById(ingId).session(session);
+
+    const adjData = {
+      adjustmentType: "DECREASE",
+      quantity: totalQty,
+      transactionType: "MENU_USAGE",
+      reason: `Used for menu item "${foodName}" on ${dateOnly(
+        schedule.date
+      )}`,
+      referenceType: "MENU_SCHEDULE_ITEM",
+      referenceId: itemId,
+
+      metadata: buildMenuInventoryMetadata({
+        action: "CREATE_MENU_ITEM_BULK",
+        source: "MENU_SCHEDULE_ITEM",
+        schedule,
+        itemId,
+        food,
+        ingredient: ingDoc,
+        servingCount: finalMaxServing,
+        quantityPerServing: r.quantityPerServing,
+      }),
+    };
+
+    const res = await ingredientService.adjustStock(
+      ingId,
+      adjData,
+      user,
+      session
+    );
+
+    const affected =
+      res.transaction.metadata.affectedBatches;
+
+    if (Array.isArray(affected)) {
+      for (const batch of affected) {
+        deductedBatches.push({
+          ingredientId: ingId,
+          batchId: batch.batchId,
+          quantity: Math.abs(batch.quantity),
         });
       }
+    }
+  }
 
-      try {
-        createdItems = await MenuScheduleItem.insertMany(docsToCreate, { session });
-      } catch (err) {
-        if (err.code === 11000) {
-          const error = new Error("One or more food items are already added to this menu schedule");
-          error.statusCode = 400;
-          throw error;
-        }
-        throw err;
-      }
+  // ==========================================
+  // 4. LƯU MÓN ĐỦ NGUYÊN LIỆU
+  // ==========================================
+  docsToCreate.push({
+    _id: itemId,
+    menuScheduleId,
+    foodId,
+    maxServing: finalMaxServing,
+
+    isActive:
+      itemData.isActive !== undefined
+        ? itemData.isActive
+        : true,
+
+    remainingCount: finalMaxServing,
+    reservedCount: 0,
+    servedCount: 0,
+
+    recipeSnapshot,
+    deductedBatches,
+  });
+}
+
+// ==========================================
+// 5. SAU KHI KIỂM TRA TẤT CẢ MÓN
+// ==========================================
+if (insufficientFoods.length > 0) {
+  const details = insufficientFoods
+    .map((food) => {
+      const ingredientDetails = food.ingredients
+        .map(
+          (item) =>
+            `"${item.name}" - Required: ${item.required} ${item.unit}, ` +
+            `Available: ${item.available} ${item.unit}, ` +
+            `Shortage: ${item.shortage} ${item.unit}`
+        )
+        .join("; ");
+
+      return `"${food.foodName}": ${ingredientDetails}`;
+    })
+    .join(" | ");
+
+  const error = new Error(
+    `Insufficient ingredients: ${details}`
+  );
+
+  error.statusCode = 400;
+  throw error;
+}
+
+// ==========================================
+// 6. INSERT CÁC MÓN ĐỦ NGUYÊN LIỆU
+// ==========================================
+try {
+  createdItems = await MenuScheduleItem.insertMany(
+    docsToCreate,
+    { session }
+  );
+} catch (err) {
+  if (err.code === 11000) {
+    const error = new Error(
+      "One or more food items are already added to this menu schedule"
+    );
+
+    error.statusCode = 400;
+    throw error;
+  }
+
+  throw err;
+}
     });
   } finally {
     await session.endSession();
