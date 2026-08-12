@@ -12,7 +12,14 @@ const validate = (schema) => (req, res, next) => {
       }
     });
 
-    const err = new Error("Validation failed");
+    const unknownFieldError = error.details.find(
+      (detail) => detail.type === "object.unknown",
+    );
+    const err = new Error(
+      unknownFieldError
+        ? `Validation failed: ${unknownFieldError.message}`
+        : "Validation failed",
+    );
     err.statusCode = 422;
     err.errors = errors;
     return next(err);

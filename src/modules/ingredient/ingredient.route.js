@@ -47,6 +47,11 @@ router.patch(
   writeActivityLog("UPDATE_INGREDIENT", "Ingredient"),
   controller.updateById,
 );
-router.delete("/:id", writeActivityLog("DELETE_INGREDIENT", "Ingredient"), controller.deleteById);
+router.delete(
+  "/:id",
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
+  writeActivityLog("DELETE_INGREDIENT", "Ingredient"),
+  controller.deleteById,
+);
 
 module.exports = router;
