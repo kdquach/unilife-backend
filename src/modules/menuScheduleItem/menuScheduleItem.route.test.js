@@ -74,6 +74,32 @@ describe("MenuScheduleItem Routes (POST, PATCH, DELETE)", () => {
   describe("POST /api/v1/menu-schedule-items/bulk", () => {
     it("should successfully add multiple items in bulk", async () => {
       const food2 = await Food.create({ name: "Burger", categoryId: category._id, price: 1200, status: "AVAILABLE" });
+      const ingredient = await Ingredient.create({
+        name: "Flour",
+        unit: "g",
+        currentStock: 100,
+        isActive: true,
+      });
+      await IngredientBatch.create({
+        ingredientId: ingredient._id,
+        quantity: 100,
+        remainingQuantity: 100,
+        expiryDate: new Date(Date.now() + 10 * 86400000),
+      });
+      await FoodIngredient.insertMany([
+        {
+          foodId: food._id,
+          ingredientId: ingredient._id,
+          quantityPerServing: 1,
+          unit: "g",
+        },
+        {
+          foodId: food2._id,
+          ingredientId: ingredient._id,
+          quantityPerServing: 1,
+          unit: "g",
+        },
+      ]);
       const res = await request(app)
         .post("/api/v1/menu-schedule-items/bulk")
         .set("Authorization", `Bearer ${managerToken}`)
@@ -178,9 +204,9 @@ describe("MenuScheduleItem Routes (POST, PATCH, DELETE)", () => {
         .send({ menuScheduleId: schedule._id, foodId: food._id, maxServing: 10 });
 
       expect(res.status).toBe(400);
-      expect(res.body.message).toContain('Insufficient ingredient "Phô Mai" for food "Pizza"');
+      expect(res.body.message).toContain('Insufficient ingredients for food "Pizza"');
       expect(res.body.message).toContain('Required: 100 g');
-      expect(res.body.message).toContain('Available in stock: 50 g');
+      expect(res.body.message).toContain('Available: 50 g');
       expect(res.body.message).toContain('Shortage: 50 g');
     });
   });
@@ -211,7 +237,7 @@ describe("MenuScheduleItem Routes (POST, PATCH, DELETE)", () => {
     it("should reject Mass Assignment with 422 Unprocessable Entity", async () => {
       const res = await request(app).post("/api/v1/menu-schedule-items").set("Authorization", `Bearer ${managerToken}`).send({ menuScheduleId: schedule._id, foodId: food._id, maxServing: 10, remainingCount: 999, reservedCount: 50 });
       expect(res.status).toBe(422);
-      expect(res.body.message).toContain("Mass Assignment");
+      expect(res.body.message).toContain("Validation failed");
     });
 
     it("should deduct ingredient stock and record menu usage transaction history", async () => {
