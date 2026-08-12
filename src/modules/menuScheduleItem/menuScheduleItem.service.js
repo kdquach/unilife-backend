@@ -39,6 +39,29 @@ const buildMenuInventoryMetadata = ({
   ingredientUnit: ingredient?.unit || null,
 });
 
+const createError = (message, statusCode = 400) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
+
+const getRecipeIngredientId = (recipeItem) =>
+  recipeItem?.ingredientId?._id || recipeItem?.ingredientId;
+
+const assertRecipeHasTrackableIngredients = (recipe, foodName) => {
+  const validRecipeItems = recipe.filter(
+    (item) =>
+      getRecipeIngredientId(item) &&
+      Number(item.quantityPerServing || 0) > 0,
+  );
+
+  if (validRecipeItems.length === 0) {
+    throw createError(
+      `Food "${foodName}" must have at least one ingredient with quantity per serving before it can be added to a menu`
+    );
+  }
+};
+
 const create = async (data, user) => {
   const { menuScheduleId, foodId, maxServing } = data;
   
@@ -80,8 +103,9 @@ const create = async (data, user) => {
       await schedule.save({ session });
 
       const recipe = await FoodIngredient.find({ foodId }).populate("ingredientId").session(session);
+      assertRecipeHasTrackableIngredients(recipe, food.name);
       const recipeSnapshot = recipe.map((r) => ({
-        ingredientId: r.ingredientId._id || r.ingredientId,
+        ingredientId: getRecipeIngredientId(r),
         quantityPerServing: r.quantityPerServing,
       }));
 
@@ -149,6 +173,53 @@ if (insufficientIngredients.length > 0) {
   error.statusCode = 400;
   throw error;
 }
+
+      for (const recipeItem of recipe) {
+        const totalQty = recipeItem.quantityPerServing * finalMaxServing;
+        if (totalQty <= 0) continue;
+
+        const ingredientId = getRecipeIngredientId(recipeItem);
+        const ingredient = recipeItem.ingredientId?._id
+          ? recipeItem.ingredientId
+          : await Ingredient.findById(ingredientId).session(session);
+
+        const adjData = {
+          adjustmentType: "DECREASE",
+          quantity: totalQty,
+          transactionType: "MENU_USAGE",
+          reason: `Used for menu item "${food.name}" on ${dateOnly(schedule.date)}`,
+          referenceType: "MENU_SCHEDULE_ITEM",
+          referenceId: itemId,
+          metadata: buildMenuInventoryMetadata({
+            action: "CREATE_MENU_ITEM",
+            source: "MENU_SCHEDULE_ITEM",
+            schedule,
+            itemId,
+            food,
+            ingredient,
+            servingCount: finalMaxServing,
+            quantityPerServing: recipeItem.quantityPerServing,
+          }),
+        };
+
+        const result = await ingredientService.adjustStock(
+          ingredientId,
+          adjData,
+          user,
+          session
+        );
+
+        const affectedBatches = result.transaction.metadata.affectedBatches;
+        if (Array.isArray(affectedBatches)) {
+          for (const batch of affectedBatches) {
+            deductedBatches.push({
+              ingredientId,
+              batchId: batch.batchId,
+              quantity: Math.abs(batch.quantity),
+            });
+          }
+        }
+      }
 
       const cleanData = {
         _id: itemId,
@@ -259,9 +330,10 @@ for (const itemData of items) {
   const recipe = await FoodIngredient.find({ foodId })
     .populate("ingredientId")
     .session(session);
+  assertRecipeHasTrackableIngredients(recipe, foodName);
 
   const recipeSnapshot = recipe.map((r) => ({
-    ingredientId: r.ingredientId._id || r.ingredientId,
+    ingredientId: getRecipeIngredientId(r),
     quantityPerServing: r.quantityPerServing,
   }));
 
