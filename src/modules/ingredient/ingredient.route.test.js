@@ -188,6 +188,46 @@ describe("Ingredient Routes - Soft Delete", () => {
     ]);
   });
 
+  it("allows creating a new ingredient with the same name after soft delete", async () => {
+    const ingredient = await Ingredient.create({
+      name: "Orange",
+      unit: "kg",
+      price: 10,
+      storageType: "COLD",
+      currentStock: 1,
+      isActive: true,
+    });
+
+    const deleteRes = await request(app)
+      .delete(`/api/v1/ingredients/${ingredient._id}`)
+      .set("Authorization", `Bearer ${managerToken}`);
+
+    expect(deleteRes.status).toBe(200);
+
+    const createRes = await request(app)
+      .post("/api/v1/ingredients")
+      .set("Authorization", `Bearer ${managerToken}`)
+      .send({
+        name: "Orange",
+        unit: "kg",
+        price: 10,
+        storageType: "COLD",
+        minStockThreshold: 0,
+      });
+
+    expect(createRes.status).toBe(201);
+    expect(createRes.body.success).toBe(true);
+    expect(createRes.body.data.name).toBe("Orange");
+    expect(createRes.body.data._id).not.toBe(ingredient._id.toString());
+
+    const ingredients = await Ingredient.find({ name: "Orange" }).sort({
+      createdAt: 1,
+    });
+    expect(ingredients).toHaveLength(2);
+    expect(ingredients[0].isActive).toBe(false);
+    expect(ingredients[1].isActive).toBe(true);
+  });
+
   it("does not allow customers to soft-delete ingredients", async () => {
     const ingredient = await Ingredient.create({
       name: "Milk",

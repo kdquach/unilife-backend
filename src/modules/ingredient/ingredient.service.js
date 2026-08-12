@@ -183,7 +183,10 @@ const getIngredientCategoryId = async (value) => {
 };
 
 const assertUniqueIngredientName = async (name, excludeId = null) => {
-  const filter = { name: new RegExp(`^${escapeRegExp(name)}$`, "i") };
+  const filter = {
+    name: new RegExp(`^${escapeRegExp(name)}$`, "i"),
+    isActive: true,
+  };
   if (excludeId) filter._id = { $ne: excludeId };
 
   const existing = await Ingredient.findOne(filter);
