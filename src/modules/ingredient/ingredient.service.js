@@ -200,6 +200,7 @@ const assertAllowedIngredientFields = (data = {}, options = {}) => {
     "categoryId",
     "name",
     "unit",
+    "price",
     "storageType",
     "minStockThreshold",
     "isActive",
@@ -348,6 +349,15 @@ const buildIngredientData = async (data = {}, options = {}) => {
     payload.storageType = storageType || undefined;
   }
 
+  if (data.price !== undefined) {
+    payload.price = getNumber(data.price, "price", {
+      nonNegative: true,
+      maxDecimals: 2,
+    });
+  } else if (!options.partial) {
+    payload.price = 0;
+  }
+
   if (data.minStockThreshold !== undefined) {
     payload.minStockThreshold = getNumber(data.minStockThreshold, "minStockThreshold", {
       nonNegative: true,
@@ -426,9 +436,10 @@ const buildSort = (query = {}) => {
   const allowedSortFields = [
     "createdAt",
     "name",
-    "currentStock",
-    "minStockThreshold",
-    "storageType",
+      "currentStock",
+      "minStockThreshold",
+      "price",
+      "storageType",
   ];
   const sortBy = allowedSortFields.includes(query.sortBy)
     ? query.sortBy
@@ -828,8 +839,9 @@ const recordStockImport = async (id, data = {}, user = null) => {
   const expiryDate = getRequiredDate(data.expiryDate, "expiryDate");
   assertNotPastDate(expiryDate, "expiryDate");
 
-  const unitPrice = getOptionalNumber(data.unitPrice, "unitPrice", {
-    nonNegative: true,
+  const unitPrice = getNumber(data.unitPrice, "unitPrice", {
+    positive: true,
+    maxDecimals: 2,
   });
   const supplierId = await getSupplierId(data.supplierId);
   const referenceId = getOptionalObjectId(data.referenceId, "referenceId");
