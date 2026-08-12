@@ -4,6 +4,8 @@ const { authenticate } = require("../../middlewares/auth.middleware");
 const { authorize } = require("../../middlewares/role.middleware");
 const { writeActivityLog } = require("../../middlewares/activityLog.middleware");
 const { foodUpload } = require("../../middlewares/upload.middleware");
+const { validate } = require("../../middlewares/validate.middleware");
+const { createFoodSchema } = require("./food.validation");
 const ROLES = require("../../constants/roles.constant");
 
 const router = express.Router();
@@ -41,6 +43,7 @@ router.post(
   "/",
   managerAccess,
   foodUpload.single("image"),
+  validate(createFoodSchema),
   writeActivityLog("CREATE_FOOD", "Food"),
   controller.create,
 );
