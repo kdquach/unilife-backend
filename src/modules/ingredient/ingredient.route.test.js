@@ -48,6 +48,64 @@ describe("Ingredient Routes - Soft Delete", () => {
     customerToken = (await createTestUser(ROLES.CUSTOMER)).token;
   });
 
+  it("requires unit price when importing stock", async () => {
+    const ingredient = await Ingredient.create({
+      name: "Potato",
+      unit: "kg",
+      storageType: "DRY",
+      currentStock: 0,
+      isActive: true,
+    });
+    const expiryDate = new Date(Date.now() + 7 * 86400000)
+      .toISOString()
+      .slice(0, 10);
+
+    const res = await request(app)
+      .post(`/api/v1/ingredients/${ingredient._id}/stock-import`)
+      .set("Authorization", `Bearer ${managerToken}`)
+      .send({
+        quantity: 12,
+        expiryDate,
+        reason: "Supplier delivery",
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toBe("unitPrice must be a number");
+  });
+
+  it("stores unit price on the imported ingredient batch", async () => {
+    const ingredient = await Ingredient.create({
+      name: "Carrot",
+      unit: "kg",
+      storageType: "COLD",
+      currentStock: 0,
+      isActive: true,
+    });
+    const expiryDate = new Date(Date.now() + 7 * 86400000)
+      .toISOString()
+      .slice(0, 10);
+
+    const res = await request(app)
+      .post(`/api/v1/ingredients/${ingredient._id}/stock-import`)
+      .set("Authorization", `Bearer ${managerToken}`)
+      .send({
+        quantity: 8,
+        expiryDate,
+        unitPrice: 25000,
+        reason: "Supplier delivery",
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.batch.unitPrice).toBe(25000);
+    expect(res.body.data.transaction.metadata.unitPrice).toBe(25000);
+
+    const storedBatch = await IngredientBatch.findOne({
+      ingredientId: ingredient._id,
+    });
+    expect(storedBatch.unitPrice).toBe(25000);
+  });
+
   it("soft-deletes an ingredient by marking it inactive without removing records", async () => {
     const ingredient = await Ingredient.create({
       name: "Tomato",
