@@ -336,7 +336,23 @@ const resetPasswordSchema = Joi.object({
   newPassword: passwordSchema,
 }).unknown(false);
 
+const changePasswordSchema = Joi.object({
+  currentPassword: Joi.string()
+    .required()
+    .messages({
+      "any.required": `Current password is required`,
+      "string.empty": `Current password cannot be empty`,
+    }),
+
+  newPassword: passwordSchema
+    .disallow(Joi.ref('currentPassword'))
+    .messages({
+      "any.invalid": `New password must be different from current password`,
+    }),
+}).unknown(false);
+
 module.exports = {
   registerSchema,
   resetPasswordSchema,
+  changePasswordSchema,
 };
