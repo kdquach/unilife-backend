@@ -386,9 +386,7 @@ const buildIngredientFilter = (query = {}) => {
     "categoryId",
   );
 
-  if (isActive !== undefined) {
-    filter.isActive = isActive;
-  }
+  filter.isActive = isActive !== undefined ? isActive : true;
 
   if (categoryIds.length === 1) {
     filter.categoryId = categoryIds[0];
@@ -965,7 +963,48 @@ const updateById = async (id, data = {}) => {
 
   return Ingredient.findById(id).populate("categoryId", "name description");
 };
-const deleteById = (id) => Ingredient.findByIdAndDelete(id);
+const deleteById = async (id, user = null) => {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw createError("Invalid ingredient id");
+  }
+
+  const ingredient = await Ingredient.findById(id);
+  if (!ingredient) throw createError("Ingredient not found", 404);
+
+  if (!ingredient.isActive) {
+    throw createError("Ingredient is already inactive");
+  }
+
+  ingredient.isActive = false;
+  await ingredient.save();
+
+  const stock = Number(ingredient.currentStock || 0);
+  await IngredientTransaction.create({
+    ingredientId: ingredient._id,
+    transactionType: "INGREDIENT_DELETE",
+    quantity: 0,
+    stockBefore: stock,
+    stockAfter: stock,
+    unit: ingredient.unit || null,
+    reason: "Ingredient deleted",
+    adjustedBy: getActorId(user),
+    referenceType: "INGREDIENT_DELETE",
+    referenceId: ingredient._id,
+    metadata: {
+      source: "INGREDIENT_SOFT_DELETE",
+      deletedIngredient: {
+        name: ingredient.name,
+        unit: ingredient.unit || null,
+        storageType: ingredient.storageType || null,
+        categoryId: ingredient.categoryId || null,
+        minStockThreshold: ingredient.minStockThreshold,
+        currentStock: stock,
+      },
+    },
+  });
+
+  return Ingredient.findById(id).populate("categoryId", "name description");
+};
 
 module.exports = {
   create,

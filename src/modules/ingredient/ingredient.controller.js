@@ -51,7 +51,11 @@ const updateById = asyncHandler(async (req, res) =>
   ),
 );
 const deleteById = asyncHandler(async (req, res) =>
-  success(res, await service.deleteById(req.params.id), "Deleted successfully"),
+  success(
+    res,
+    await service.deleteById(req.params.id, req.user),
+    "Deleted successfully",
+  ),
 );
 
 module.exports = {
