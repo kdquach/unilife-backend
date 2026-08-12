@@ -3,7 +3,7 @@ const controller = require("./auth.controller");
 const { authenticate } = require("../../middlewares/auth.middleware");
 const rateLimit = require("express-rate-limit");
 const { validate } = require("../../middlewares/validate.middleware");
-const { registerSchema } = require("./auth.validation");
+const { registerSchema, resetPasswordSchema } = require("./auth.validation");
 
 const router = express.Router();
 
@@ -28,7 +28,7 @@ router.post("/login", authLimiter, controller.login);
 router.post("/refresh-token", controller.refresh);
 router.post("/forgot-password", authLimiter, controller.forgotPassword);
 router.post("/resend-forgot-password-otp", authLimiter, controller.resendForgotPasswordOtp);
-router.post("/reset-password", controller.resetPassword);
+router.post("/reset-password", authLimiter, validate(resetPasswordSchema), controller.resetPassword);
 router.post("/logout", authenticate, controller.logout);
 router.patch("/change-password", authenticate, controller.changePassword);
 router.get("/me", authenticate, controller.me);
