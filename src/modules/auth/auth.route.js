@@ -2,6 +2,8 @@ const express = require("express");
 const controller = require("./auth.controller");
 const { authenticate } = require("../../middlewares/auth.middleware");
 const rateLimit = require("express-rate-limit");
+const { validate } = require("../../middlewares/validate.middleware");
+const { registerSchema } = require("./auth.validation");
 
 const router = express.Router();
 
@@ -14,7 +16,12 @@ const authLimiter = rateLimit({
   skip: (req) => process.env.NODE_ENV === "test",
 });
 
-router.post("/register", authLimiter, controller.register);
+router.post(
+  "/register",
+  authLimiter,
+  validate(registerSchema),
+  controller.register
+);
 router.post("/verify-register-otp", controller.verifyRegisterOtp);
 router.post("/resend-register-otp", authLimiter, controller.resendRegisterOtp);
 router.post("/login", authLimiter, controller.login);
