@@ -22,11 +22,11 @@ const fullNameSchema = Joi.string()
     return value;
   })
   .messages({
-    "any.required": `"fullName" is required`,
-    "string.empty": `"fullName" cannot be empty`,
-    "string.min": `"fullName" must be at least 2 characters`,
-    "string.max": `"fullName" must not exceed 100 characters`,
-    "any.invalid": `"fullName" must contain at least first name and last name, using letters and spaces only`,
+    "any.required": `Full Name is required`,
+    "string.empty": `Full Name cannot be empty`,
+    "string.min": `Full Name must be at least 2 characters`,
+    "string.max": `Full Name must not exceed 100 characters`,
+    "any.invalid": `Full Name must contain at least first name and last name, using letters and spaces only`,
   });
 
 const registerSchema = Joi.object({
@@ -115,10 +115,10 @@ const registerSchema = Joi.object({
       return value;
     })
     .messages({
-      "any.required": `"email" is required`,
-      "string.empty": `"email" cannot be empty`,
-      "string.max": `"email" must not exceed 254 characters`,
-      "string.email": `"email" must be a valid email address`,
+      "any.required": `Email is required`,
+      "string.empty": `Email cannot be empty`,
+      "string.max": `Email must not exceed 254 characters`,
+      "string.email": `Email must be a valid email address`,
     }),
 
   phone: Joi.string()
@@ -143,27 +143,50 @@ const registerSchema = Joi.object({
     return value;
   })
   .messages({
-    "any.required": `"phone" is required`,
-    "string.empty": `"phone" cannot be empty`,
-    "string.phone": `"phone" must be a valid Vietnamese phone number`,
+    "any.required": `Phone is required`,
+    "string.empty": `Phone cannot be empty`,
+    "string.phone": `Phone must be a valid Vietnamese phone number`,
   }),
 
   password: Joi.string()
   .min(8)
   .max(128)
-  .pattern(/^\S+$/)
-  .pattern(/[a-z]/)
-  .pattern(/[A-Z]/)
-  .pattern(/[0-9]/)
-  .pattern(/[^A-Za-z0-9]/)
+  .custom((value, helpers) => {
+    // Check for spaces
+    if (/\s/.test(value)) {
+      return helpers.error("any.invalid");
+    }
+
+    // Check for at least one lowercase
+    if (!/[a-z]/.test(value)) {
+      return helpers.error("any.invalid");
+    }
+
+    // Check for at least one uppercase
+    if (!/[A-Z]/.test(value)) {
+      return helpers.error("any.invalid");
+    }
+
+    // Check for at least one number
+    if (!/[0-9]/.test(value)) {
+      return helpers.error("any.invalid");
+    }
+
+    // Check for at least one special character
+    if (!/[^A-Za-z0-9]/.test(value)) {
+      return helpers.error("any.invalid");
+    }
+
+    return value;
+  })
   .required()
   .messages({
-    "any.required": `"password" is required`,
-    "string.empty": `"password" cannot be empty`,
-    "string.min": `"password" must be at least 8 characters`,
-    "string.max": `"password" must not exceed 128 characters`,
-    "string.pattern.base":
-      `"password" must contain uppercase, lowercase, number, special character, and no spaces`,
+    "any.required": `Password is required`,
+    "string.empty": `Password cannot be empty`,
+    "string.min": `Password must be at least 8 characters`,
+    "string.max": `Password must not exceed 128 characters`,
+    "any.invalid":
+      `Password must contain uppercase, lowercase, number, special character, and no spaces`,
   }),
 
   avatarUrl: Joi.string().uri().allow(null, "").optional().messages({

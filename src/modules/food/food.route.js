@@ -51,6 +51,7 @@ router.patch(
   "/:id",
   managerAccess,
   foodUpload.single("image"),
+  validate(createFoodSchema),
   writeActivityLog("UPDATE_FOOD", "Food"),
   controller.updateById,
 );
