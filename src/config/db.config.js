@@ -7,6 +7,7 @@ const connectDB = async () => {
   try {
     if (!process.env.MONGODB_URI) throw new Error("MONGODB_URI is missing");
     await mongoose.connect(process.env.MONGODB_URI, {
+      dbName: process.env.MONGODB_DB_NAME || undefined,
       maxPoolSize: 50,
       minPoolSize: 5,
       serverSelectionTimeoutMS: 5000,
