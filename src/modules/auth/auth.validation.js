@@ -351,8 +351,42 @@ const changePasswordSchema = Joi.object({
     }),
 }).unknown(false);
 
+const updateProfileSchema = Joi.object({
+  fullName: fullNameSchema,
+  phone: Joi.string()
+    .trim()
+    .allow(null, "")
+    .custom((value, helpers) => {
+      // Cho phép null hoặc empty string
+      if (value === null || value === "") {
+        return value;
+      }
+
+      // Chỉ cho phép số
+      if (!/^\d+$/.test(value)) {
+        return helpers.error("string.phone");
+      }
+
+      // Số điện thoại Việt Nam: 10 chữ số
+      if (value.length !== 10) {
+        return helpers.error("string.phone");
+      }
+
+      // Phải bắt đầu bằng 03, 05, 07, 08 hoặc 09
+      if (!/^(03|05|07|08|09)\d{8}$/.test(value)) {
+        return helpers.error("string.phone");
+      }
+
+      return value;
+    })
+    .messages({
+      "string.phone": `Phone must be a valid Vietnamese phone number`,
+    }),
+}).unknown(false);
+
 module.exports = {
   registerSchema,
   resetPasswordSchema,
   changePasswordSchema,
+  updateProfileSchema,
 };

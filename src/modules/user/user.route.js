@@ -4,13 +4,15 @@ const { authenticate } = require("../../middlewares/auth.middleware");
 const { authorize } = require("../../middlewares/role.middleware");
 const { avatarUpload } = require("../../middlewares/upload.middleware");
 const { writeActivityLog } = require("../../middlewares/activityLog.middleware");
+const { validate } = require("../../middlewares/validate.middleware");
+const { updateProfileSchema } = require("../auth/auth.validation");
 const ROLES = require("../../constants/roles.constant");
 
 const router = express.Router();
 
 router.use(authenticate);
 router.get("/profile", controller.getProfile);
-router.patch("/profile", writeActivityLog("UPDATE_PROFILE", "User"), controller.updateProfile);
+router.patch("/profile", validate(updateProfileSchema), writeActivityLog("UPDATE_PROFILE", "User"), controller.updateProfile);
 router.post(
   "/profile/avatar",
   avatarUpload.single("avatar"),
