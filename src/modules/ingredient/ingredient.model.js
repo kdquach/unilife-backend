@@ -10,7 +10,6 @@ const ingredientSchema = new mongoose.Schema(
     },
     name: { type: String, required: true, trim: true },
     unit: { type: String },
-    price: { type: Number, default: 0 },
     storageType: { type: String },
     minStockThreshold: { type: Number, default: 0 },
     currentStock: { type: Number, default: 0 },
