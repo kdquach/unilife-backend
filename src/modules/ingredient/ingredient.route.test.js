@@ -284,7 +284,6 @@ describe("Ingredient Routes - Soft Delete", () => {
     const ingredient = await Ingredient.create({
       name: "Orange",
       unit: "kg",
-      price: 10,
       storageType: "COLD",
       currentStock: 1,
       isActive: true,
@@ -302,7 +301,6 @@ describe("Ingredient Routes - Soft Delete", () => {
       .send({
         name: "Orange",
         unit: "kg",
-        price: 10,
         storageType: "COLD",
         minStockThreshold: 0,
       });

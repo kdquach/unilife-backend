@@ -242,7 +242,6 @@ const assertAllowedIngredientFields = (data = {}, options = {}) => {
     "categoryId",
     "name",
     "unit",
-    "price",
     "storageType",
     "minStockThreshold",
     "isActive",
@@ -391,15 +390,6 @@ const buildIngredientData = async (data = {}, options = {}) => {
     payload.storageType = storageType || undefined;
   }
 
-  if (data.price !== undefined) {
-    payload.price = getNumber(data.price, "price", {
-      nonNegative: true,
-      maxDecimals: 2,
-    });
-  } else if (!options.partial) {
-    payload.price = 0;
-  }
-
   if (data.minStockThreshold !== undefined) {
     payload.minStockThreshold = getNumber(data.minStockThreshold, "minStockThreshold", {
       nonNegative: true,
@@ -486,10 +476,9 @@ const buildSort = (query = {}) => {
   const allowedSortFields = [
     "createdAt",
     "name",
-      "currentStock",
-      "minStockThreshold",
-      "price",
-      "storageType",
+    "currentStock",
+    "minStockThreshold",
+    "storageType",
   ];
   const sortBy = allowedSortFields.includes(query.sortBy)
     ? query.sortBy
