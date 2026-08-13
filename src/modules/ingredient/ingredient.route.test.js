@@ -5,6 +5,8 @@ const User = require("../user/user.model");
 const Ingredient = require("./ingredient.model");
 const IngredientBatch = require("../ingredientBatch/ingredientBatch.model");
 const IngredientTransaction = require("../ingredientTransaction/ingredientTransaction.model");
+const Food = require("../food/food.model");
+const FoodIngredient = require("../foodIngredient/foodIngredient.model");
 const ROLES = require("../../constants/roles.constant");
 const jwt = require("jsonwebtoken");
 
@@ -21,6 +23,8 @@ beforeEach(async () => {
   await Ingredient.deleteMany({});
   await IngredientBatch.deleteMany({});
   await IngredientTransaction.deleteMany({});
+  await FoodIngredient.deleteMany({});
+  await Food.deleteMany({});
 });
 
 const createTestUser = async (role) => {
@@ -106,7 +110,7 @@ describe("Ingredient Routes - Soft Delete", () => {
     expect(storedBatch.unitPrice).toBe(25000);
   });
 
-  it("soft-deletes an ingredient by marking it inactive without removing records", async () => {
+  it("soft-deletes an ingredient by marking it deleted without removing records", async () => {
     const ingredient = await Ingredient.create({
       name: "Tomato",
       unit: "kg",
@@ -137,7 +141,8 @@ describe("Ingredient Routes - Soft Delete", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.data.isActive).toBe(false);
+    expect(res.body.data.isDeleted).toBe(true);
+    expect(res.body.data.isActive).toBe(true);
 
     const storedIngredient = await Ingredient.findById(ingredient._id);
     const storedBatch = await IngredientBatch.findById(batch._id);
@@ -148,7 +153,8 @@ describe("Ingredient Routes - Soft Delete", () => {
     });
 
     expect(storedIngredient).toBeTruthy();
-    expect(storedIngredient.isActive).toBe(false);
+    expect(storedIngredient.isDeleted).toBe(true);
+    expect(storedIngredient.isActive).toBe(true);
     expect(storedBatch).toBeTruthy();
     expect(storedTransaction).toBeTruthy();
     expect(deleteTransaction).toBeTruthy();
@@ -167,16 +173,20 @@ describe("Ingredient Routes - Soft Delete", () => {
     await Ingredient.create([
       { name: "Active Rice", unit: "kg", isActive: true },
       { name: "Inactive Rice", unit: "kg", isActive: false },
+      { name: "Deleted Rice", unit: "kg", isActive: true, isDeleted: true },
     ]);
 
-    const activeList = await request(app)
+    const defaultList = await request(app)
       .get("/api/v1/ingredients")
       .set("Authorization", `Bearer ${managerToken}`);
 
-    expect(activeList.status).toBe(200);
-    expect(activeList.body.data.items.map((item) => item.name)).toEqual([
-      "Active Rice",
-    ]);
+    expect(defaultList.status).toBe(200);
+    expect(defaultList.body.data.items.map((item) => item.name)).toEqual(
+      expect.arrayContaining(["Active Rice", "Inactive Rice"]),
+    );
+    expect(defaultList.body.data.items.map((item) => item.name)).not.toContain(
+      "Deleted Rice",
+    );
 
     const inactiveList = await request(app)
       .get("/api/v1/ingredients?isActive=false")
@@ -186,6 +196,88 @@ describe("Ingredient Routes - Soft Delete", () => {
     expect(inactiveList.body.data.items.map((item) => item.name)).toEqual([
       "Inactive Rice",
     ]);
+  });
+
+  it("returns affected foods before and after deleting an ingredient used in recipes", async () => {
+    const ingredient = await Ingredient.create({
+      name: "Lettuce",
+      unit: "kg",
+      isActive: true,
+    });
+    const burger = await Food.create({ name: "Burger", price: 30000 });
+    const salad = await Food.create({ name: "Salad", price: 25000 });
+
+    await FoodIngredient.create([
+      {
+        foodId: burger._id,
+        ingredientId: ingredient._id,
+        quantityPerServing: 0.1,
+        unit: "kg",
+      },
+      {
+        foodId: burger._id,
+        ingredientId: ingredient._id,
+        quantityPerServing: 0.05,
+        unit: "kg",
+      },
+      {
+        foodId: salad._id,
+        ingredientId: ingredient._id,
+        quantityPerServing: 0.2,
+        unit: "kg",
+      },
+    ]);
+
+    const impactRes = await request(app)
+      .get(`/api/v1/ingredients/${ingredient._id}/delete-impact`)
+      .set("Authorization", `Bearer ${managerToken}`);
+
+    expect(impactRes.status).toBe(200);
+    expect(impactRes.body.data.affectedFoodCount).toBe(2);
+    expect(impactRes.body.data.affectedFoods.map((food) => food.name)).toEqual([
+      "Burger",
+      "Salad",
+    ]);
+    expect(
+      impactRes.body.data.affectedFoods.find((food) => food.name === "Burger")
+        .recipeUsageCount,
+    ).toBe(2);
+
+    const deleteRes = await request(app)
+      .delete(`/api/v1/ingredients/${ingredient._id}`)
+      .set("Authorization", `Bearer ${managerToken}`);
+
+    expect(deleteRes.status).toBe(200);
+    expect(deleteRes.body.data.isDeleted).toBe(true);
+    expect(deleteRes.body.data.affectedFoodCount).toBe(2);
+    expect(deleteRes.body.data.affectedFoods.map((food) => food.name)).toEqual([
+      "Burger",
+      "Salad",
+    ]);
+  });
+
+  it("does not allow duplicate names for inactive non-deleted ingredients", async () => {
+    await Ingredient.create({
+      name: "Pumpkin",
+      unit: "kg",
+      isActive: false,
+      isDeleted: false,
+    });
+
+    const res = await request(app)
+      .post("/api/v1/ingredients")
+      .set("Authorization", `Bearer ${managerToken}`)
+      .send({
+        name: "Pumpkin",
+        unit: "kg",
+        storageType: "DRY",
+        minStockThreshold: 0,
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toBe(
+      "Ingredient already exists. Please adjust stock or create a new batch instead",
+    );
   });
 
   it("allows creating a new ingredient with the same name after soft delete", async () => {
@@ -224,7 +316,9 @@ describe("Ingredient Routes - Soft Delete", () => {
       createdAt: 1,
     });
     expect(ingredients).toHaveLength(2);
-    expect(ingredients[0].isActive).toBe(false);
+    expect(ingredients[0].isDeleted).toBe(true);
+    expect(ingredients[0].isActive).toBe(true);
+    expect(ingredients[1].isDeleted).toBe(false);
     expect(ingredients[1].isActive).toBe(true);
   });
 
@@ -243,5 +337,6 @@ describe("Ingredient Routes - Soft Delete", () => {
 
     const storedIngredient = await Ingredient.findById(ingredient._id);
     expect(storedIngredient.isActive).toBe(true);
+    expect(storedIngredient.isDeleted).toBe(false);
   });
 });

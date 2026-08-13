@@ -15,6 +15,7 @@ const ingredientSchema = new mongoose.Schema(
     minStockThreshold: { type: Number, default: 0 },
     currentStock: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true, index: true },
+    isDeleted: { type: Boolean, default: false, index: true },
   },
   {
     toJSON: { virtuals: true },

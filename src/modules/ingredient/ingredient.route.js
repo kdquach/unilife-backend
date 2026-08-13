@@ -37,6 +37,11 @@ router.post(
   controller.recordStockImport,
 );
 router.get(
+  "/:id/delete-impact",
+  authorize(ROLES.ADMIN, ROLES.MANAGER),
+  controller.getDeleteImpact,
+);
+router.get(
   "/:id",
   authorize(ROLES.ADMIN, ROLES.MANAGER, ROLES.KITCHEN_STAFF),
   controller.getById,
