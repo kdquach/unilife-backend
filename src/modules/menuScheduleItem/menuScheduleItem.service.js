@@ -77,17 +77,31 @@ const assertRecipeIngredientsUsable = (recipe, foodName) => {
 
   if (unavailableIngredients.length === 0) return;
 
-  const uniqueDetails = Array.from(
-    new Map(
-      unavailableIngredients.map((item) => [
-        `${item.name}-${item.status}`,
-        `"${item.name}" (${item.status})`,
-      ]),
-    ).values(),
-  ).join(", ");
+  const groupedIngredients = unavailableIngredients.reduce((acc, item) => {
+    if (!acc[item.status]) acc[item.status] = new Set();
+    acc[item.status].add(item.name);
+    return acc;
+  }, {});
+
+  const buildNames = (status) =>
+    Array.from(groupedIngredients[status] || [])
+      .map((name) => `"${name}"`)
+      .join(", ");
+
+  const details = [
+    groupedIngredients.deleted
+      ? `deleted ingredient(s): ${buildNames("deleted")}`
+      : null,
+    groupedIngredients.inactive
+      ? `inactive ingredient(s): ${buildNames("inactive")}`
+      : null,
+    groupedIngredients.missing
+      ? `missing ingredient(s): ${buildNames("missing")}`
+      : null,
+  ].filter(Boolean).join("; ");
 
   throw createError(
-    `Cannot add food "${foodName}" to menu because its recipe contains unavailable ingredient(s): ${uniqueDetails}. Please update the recipe before adding this food to a menu`,
+    `Cannot add "${foodName}" to the menu because its recipe contains ${details}. Please update the recipe before adding this food to a menu.`,
   );
 };
 
