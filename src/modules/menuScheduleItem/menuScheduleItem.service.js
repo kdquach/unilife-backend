@@ -62,6 +62,35 @@ const assertRecipeHasTrackableIngredients = (recipe, foodName) => {
   }
 };
 
+const assertRecipeIngredientsUsable = (recipe, foodName) => {
+  const unavailableIngredients = recipe
+    .map((item) => item.ingredientId)
+    .filter((ingredient) => !ingredient || ingredient.isDeleted || ingredient.isActive === false)
+    .map((ingredient) => ({
+      name: ingredient?.name || "Unknown ingredient",
+      status: !ingredient
+        ? "missing"
+        : ingredient.isDeleted
+          ? "deleted"
+          : "inactive",
+    }));
+
+  if (unavailableIngredients.length === 0) return;
+
+  const uniqueDetails = Array.from(
+    new Map(
+      unavailableIngredients.map((item) => [
+        `${item.name}-${item.status}`,
+        `"${item.name}" (${item.status})`,
+      ]),
+    ).values(),
+  ).join(", ");
+
+  throw createError(
+    `Cannot add food "${foodName}" to menu because its recipe contains unavailable ingredient(s): ${uniqueDetails}. Please update the recipe before adding this food to a menu`,
+  );
+};
+
 const create = async (data, user) => {
   const { menuScheduleId, foodId, maxServing } = data;
   
@@ -104,6 +133,7 @@ const create = async (data, user) => {
 
       const recipe = await FoodIngredient.find({ foodId }).populate("ingredientId").session(session);
       assertRecipeHasTrackableIngredients(recipe, food.name);
+      assertRecipeIngredientsUsable(recipe, food.name);
       const recipeSnapshot = recipe.map((r) => ({
         ingredientId: getRecipeIngredientId(r),
         quantityPerServing: r.quantityPerServing,
@@ -331,6 +361,7 @@ for (const itemData of items) {
     .populate("ingredientId")
     .session(session);
   assertRecipeHasTrackableIngredients(recipe, foodName);
+  assertRecipeIngredientsUsable(recipe, foodName);
 
   const recipeSnapshot = recipe.map((r) => ({
     ingredientId: getRecipeIngredientId(r),

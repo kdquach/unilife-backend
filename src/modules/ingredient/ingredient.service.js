@@ -7,6 +7,7 @@ const Ingredient = require("./ingredient.model");
 const IngredientCategory = require("../ingredientCategory/ingredientCategory.model");
 const IngredientBatch = require("../ingredientBatch/ingredientBatch.model");
 const IngredientTransaction = require("../ingredientTransaction/ingredientTransaction.model");
+const FoodIngredient = require("../foodIngredient/foodIngredient.model");
 const Supplier = require("../supplier/supplier.model");
 const { getPagination } = require("../../utils/pagination.util");
 
@@ -185,7 +186,7 @@ const getIngredientCategoryId = async (value) => {
 const assertUniqueIngredientName = async (name, excludeId = null) => {
   const filter = {
     name: new RegExp(`^${escapeRegExp(name)}$`, "i"),
-    isActive: true,
+    isDeleted: { $ne: true },
   };
   if (excludeId) filter._id = { $ne: excludeId };
 
@@ -196,6 +197,44 @@ const assertUniqueIngredientName = async (name, excludeId = null) => {
       409,
     );
   }
+};
+
+const getAffectedFoods = async (ingredientId) => {
+  if (!mongoose.Types.ObjectId.isValid(ingredientId)) {
+    throw createError("Invalid ingredient id");
+  }
+
+  const recipeItems = await FoodIngredient.find({ ingredientId })
+    .populate("foodId", "name price isActive isMenuItem categoryId")
+    .sort({ createdAt: 1 });
+
+  const foodMap = new Map();
+  recipeItems.forEach((item) => {
+    const food = item.foodId;
+    if (!food?._id) return;
+
+    const key = String(food._id);
+    const current = foodMap.get(key);
+    if (current) {
+      current.recipeUsageCount += 1;
+      return;
+    }
+
+    foodMap.set(key, {
+      _id: food._id,
+      foodId: food._id,
+      name: food.name,
+      price: food.price,
+      isActive: food.isActive,
+      isMenuItem: food.isMenuItem,
+      categoryId: food.categoryId,
+      recipeUsageCount: 1,
+    });
+  });
+
+  return Array.from(foodMap.values()).sort((a, b) =>
+    String(a.name || "").localeCompare(String(b.name || "")),
+  );
 };
 
 const assertAllowedIngredientFields = (data = {}, options = {}) => {
@@ -394,12 +433,20 @@ const buildIngredientFilter = (query = {}) => {
   const filter = {};
   const keyword = (query.keyword || query.q || query.search || "").trim();
   const isActive = toBoolean(query.isActive);
+  const isDeleted = toBoolean(query.isDeleted);
+  const includeDeleted = toBoolean(query.includeDeleted);
   const categoryIds = getObjectIds(
     query.categoryIds || query.categoryId,
     "categoryId",
   );
 
-  filter.isActive = isActive !== undefined ? isActive : true;
+  if (isDeleted !== undefined) {
+    filter.isDeleted = isDeleted;
+  } else if (includeDeleted !== true) {
+    filter.isDeleted = { $ne: true };
+  }
+
+  if (isActive !== undefined) filter.isActive = isActive;
 
   if (categoryIds.length === 1) {
     filter.categoryId = categoryIds[0];
@@ -765,6 +812,9 @@ const adjustStock = async (id, data = {}, user = null, extSession = null) => {
   const executeLogic = async (sess) => {
     const ingredient = await Ingredient.findById(id).session(sess);
     if (!ingredient) throw createError("Ingredient not found", 404);
+    if (ingredient.isDeleted) {
+      throw createError("Ingredient not found", 404);
+    }
     if (!ingredient.isActive) {
       throw createError("Cannot adjust stock for inactive ingredient");
     }
@@ -862,6 +912,9 @@ const recordStockImport = async (id, data = {}, user = null) => {
     await session.withTransaction(async () => {
       const ingredient = await Ingredient.findById(id).session(session);
       if (!ingredient) throw createError("Ingredient not found", 404);
+      if (ingredient.isDeleted) {
+        throw createError("Ingredient not found", 404);
+      }
       if (!ingredient.isActive) {
         throw createError("Cannot import stock for inactive ingredient");
       }
@@ -953,6 +1006,27 @@ const getById = async (id) => {
   };
 };
 
+const getDeleteImpact = async (id) => {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw createError("Invalid ingredient id");
+  }
+
+  const ingredient = await Ingredient.findById(id).populate(
+    "categoryId",
+    "name description",
+  );
+  if (!ingredient || ingredient.isDeleted) {
+    throw createError("Ingredient not found", 404);
+  }
+
+  const affectedFoods = await getAffectedFoods(id);
+  return {
+    ingredient,
+    affectedFoods,
+    affectedFoodCount: affectedFoods.length,
+  };
+};
+
 const updateById = async (id, data = {}) => {
   if (!mongoose.Types.ObjectId.isValid(id)) {
     throw createError("Invalid ingredient id");
@@ -960,6 +1034,7 @@ const updateById = async (id, data = {}) => {
 
   const existing = await Ingredient.findById(id);
   if (!existing) throw createError("Ingredient not found", 404);
+  if (existing.isDeleted) throw createError("Ingredient not found", 404);
 
   const payload = await buildIngredientData(data, { partial: true });
   if (!Object.keys(payload).length) {
@@ -986,11 +1061,13 @@ const deleteById = async (id, user = null) => {
   const ingredient = await Ingredient.findById(id);
   if (!ingredient) throw createError("Ingredient not found", 404);
 
-  if (!ingredient.isActive) {
-    throw createError("Ingredient is already inactive");
+  if (ingredient.isDeleted) {
+    throw createError("Ingredient is already deleted");
   }
 
-  ingredient.isActive = false;
+  const affectedFoods = await getAffectedFoods(id);
+
+  ingredient.isDeleted = true;
   await ingredient.save();
 
   const stock = Number(ingredient.currentStock || 0);
@@ -1015,10 +1092,24 @@ const deleteById = async (id, user = null) => {
         minStockThreshold: ingredient.minStockThreshold,
         currentStock: stock,
       },
+      affectedFoods: affectedFoods.map((food) => ({
+        foodId: food.foodId,
+        name: food.name,
+        recipeUsageCount: food.recipeUsageCount,
+      })),
     },
   });
 
-  return Ingredient.findById(id).populate("categoryId", "name description");
+  const deletedIngredient = await Ingredient.findById(id).populate(
+    "categoryId",
+    "name description",
+  );
+
+  return {
+    ...deletedIngredient.toObject(),
+    affectedFoods,
+    affectedFoodCount: affectedFoods.length,
+  };
 };
 
 module.exports = {
@@ -1029,6 +1120,7 @@ module.exports = {
   adjustStock,
   recordStockImport,
   getById,
+  getDeleteImpact,
   updateById,
   deleteById,
 };

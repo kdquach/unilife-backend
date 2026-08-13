@@ -223,10 +223,11 @@ const normalizeIngredientItems = async (items) => {
   const ingredients = await Ingredient.find({
     _id: { $in: ingredientIds },
     isActive: true,
+    isDeleted: { $ne: true },
   }).select("_id unit");
 
   if (ingredients.length !== ingredientIds.length) {
-    throw createError("Ingredient not found or inactive", 404);
+    throw createError("Ingredient not found, inactive, or deleted", 404);
   }
 
   const unitByIngredientId = new Map(
@@ -280,7 +281,7 @@ const getFoodIngredients = (foodIds = []) => {
   if (ids.length === 0) return Promise.resolve([]);
 
   return FoodIngredient.find({ foodId: { $in: ids } })
-    .populate("ingredientId", "name unit currentStock isActive")
+    .populate("ingredientId", "name unit currentStock isActive isDeleted")
     .sort({ createdAt: 1 });
 };
 

@@ -289,6 +289,37 @@ describe("MenuScheduleItem Routes (POST, PATCH, DELETE)", () => {
       expect(transaction.metadata.servingCount).toBe(10);
       expect(transaction.metadata.affectedBatches[0].batchId).toEqual(batch._id);
     });
+
+    it("should reject food whose recipe contains a deleted ingredient", async () => {
+      const ingredient = await Ingredient.create({
+        name: "Lettuce",
+        unit: "g",
+        currentStock: 100,
+        isActive: true,
+        isDeleted: true,
+      });
+      await FoodIngredient.create({
+        foodId: food._id,
+        ingredientId: ingredient._id,
+        quantityPerServing: 2,
+        unit: "g",
+      });
+
+      const res = await request(app)
+        .post("/api/v1/menu-schedule-items")
+        .set("Authorization", `Bearer ${managerToken}`)
+        .send({
+          menuScheduleId: schedule._id,
+          foodId: food._id,
+          maxServing: 10,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toContain(
+        'Cannot add food "Pizza" to menu because its recipe contains unavailable ingredient(s)',
+      );
+      expect(res.body.message).toContain('"Lettuce" (deleted)');
+    });
   });
 
   describe("PATCH /api/v1/menu-schedule-items/:id", () => {

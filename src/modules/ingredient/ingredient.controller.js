@@ -43,6 +43,13 @@ const getById = asyncHandler(async (req, res) => {
 
   return success(res, item, "Get detail successfully");
 });
+const getDeleteImpact = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.getDeleteImpact(req.params.id),
+    "Get delete impact successfully",
+  ),
+);
 const updateById = asyncHandler(async (req, res) =>
   success(
     res,
@@ -66,6 +73,7 @@ module.exports = {
   adjustStock,
   recordStockImport,
   getById,
+  getDeleteImpact,
   updateById,
   deleteById,
 };
