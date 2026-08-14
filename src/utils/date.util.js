@@ -32,8 +32,9 @@ const isSameVietnamDay = (date, referenceDate = new Date()) => {
  */
 const getCurrentVietnamTime = () => {
   const now = new Date();
-  const offsetMs = VIETNAM_UTC_OFFSET_MINUTES * 60 * 1000;
-  const vietnamTime = new Date(now.getTime() + offsetMs);
+  // Convert to UTC first, then add Vietnam offset
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const vietnamTime = new Date(utc + (3600000 * 7));
   return vietnamTime;
 };
 

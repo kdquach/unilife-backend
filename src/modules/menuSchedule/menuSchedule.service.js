@@ -92,10 +92,20 @@ const create = async (data, user) => {
     const { start: todayStart } = getVietnamDayRange();
     const normalizedDate = getVietnamDayRange(dateOnly(data.date)).start;
     
-
-    
     if (normalizedDate < todayStart) {
       const error = new Error("Cannot create menu schedule for past dates");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Check if an active menu schedule already exists for this date
+    const existingSchedule = await MenuSchedule.findOne({
+      date: normalizedDate,
+      isActive: true
+    });
+
+    if (existingSchedule) {
+      const error = new Error("A menu schedule already exists for this date");
       error.statusCode = 400;
       throw error;
     }
