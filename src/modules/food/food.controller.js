@@ -2,8 +2,27 @@ const asyncHandler = require("../../utils/asyncHandler");
 const { success } = require("../../utils/apiResponse");
 const service = require("./food.service");
 
+const getUploadedFoodImageUrl = (file) => {
+  if (!file) return undefined;
+  const filename = file.filename || file.path?.split(/[\\/]/).pop();
+  return filename ? `/uploads/foods/${filename}` : undefined;
+};
+
+const buildFoodPayload = (req) => {
+  const imageUrl = getUploadedFoodImageUrl(req.file);
+  return {
+    ...req.body,
+    ...(imageUrl ? { imageUrl } : {}),
+  };
+};
+
 const create = asyncHandler(async (req, res) =>
-  success(res, await service.create(req.body), "Created successfully", 201),
+  success(
+    res,
+    await service.create(buildFoodPayload(req)),
+    "Created successfully",
+    201,
+  ),
 );
 
 const list = asyncHandler(async (req, res) =>
@@ -60,6 +79,14 @@ const filterOptions = asyncHandler(async (req, res) =>
   ),
 );
 
+const getDailyFoods = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.getDailyFoods(req.query),
+    "Get daily foods successfully",
+  ),
+);
+
 const getById = asyncHandler(async (req, res) => {
   const food = await service.getById(req.params.id);
   if (!food) {
@@ -80,7 +107,7 @@ const getByIdForKitchen = asyncHandler(async (req, res) =>
 const updateById = asyncHandler(async (req, res) =>
   success(
     res,
-    await service.updateById(req.params.id, req.body),
+    await service.updateById(req.params.id, buildFoodPayload(req)),
     "Updated successfully",
   ),
 );
@@ -99,6 +126,7 @@ module.exports = {
   search,
   filter,
   filterOptions,
+  getDailyFoods,
   getById,
   getByIdForKitchen,
   updateById,

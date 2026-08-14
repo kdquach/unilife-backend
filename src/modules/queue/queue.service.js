@@ -235,30 +235,67 @@ const scanOrderQr = async (payload = {}) => {
   const order = await findOrderForScan(payload);
   validateOrderCanEnterQueue(order);
 
-  const existingQueueDoc = await Queue.findOne({ orderId: order._id }).select(
-    "_id",
-  );
-  const existingQueue = existingQueueDoc
-    ? await getPopulatedById(existingQueueDoc._id)
-    : null;
-  if (existingQueue) {
-    return { queue: existingQueue, created: false };
+  let queue = await Queue.findOne({ orderId: order._id });
+
+  // ============================
+  // Đã có Queue => Quét lần 2
+  // ============================
+  if (queue) {
+    if (queue.status === "DONE") {
+      return {
+        queue: await getPopulatedById(queue._id),
+        created: false,
+      };
+    }
+
+    queue.status = "DONE";
+    queue.doneAt = new Date();
+    await queue.save();
+
+    order.status = "COMPLETED";
+    await order.save();
+
+    return {
+      queue: await getPopulatedById(queue._id),
+      created: false,
+    };
   }
 
+  // ============================
+  // Chưa có Queue => Quét lần 1
+  // ============================
   const scannedAt = new Date();
-  const queue = await Queue.create({
-    orderId: order._id,
-    queueNumber: await getNextQueueNumber(scannedAt),
-    status: "WAITING",
-    scannedAt,
-  });
+
+  try {
+    queue = await Queue.create({
+      orderId: order._id,
+      queueNumber: await getNextQueueNumber(scannedAt),
+      status: "WAITING",
+      scannedAt,
+    });
+  } catch (err) {
+    // Handle race condition: another request created the queue entry first
+    if (err.code === 11000) {
+      queue = await Queue.findOne({ orderId: order._id });
+      if (queue) {
+        return {
+          queue: await getPopulatedById(queue._id),
+          created: false,
+        };
+      }
+    }
+    throw err;
+  }
 
   if (order.status === "PAID") {
     order.status = "CONFIRMED";
     await order.save();
   }
 
-  return { queue: await getPopulatedById(queue._id), created: true };
+  return {
+    queue: await getPopulatedById(queue._id),
+    created: true,
+  };
 };
 
 const getMonitorQueue = async (query = {}) => {

@@ -49,6 +49,38 @@ const uploadAvatar = asyncHandler(async (req, res) => {
 const listUsers = asyncHandler(async (req, res) =>
   success(res, await service.listUsers(req.query), "Get users successfully"),
 );
+const listStaffs = asyncHandler(async (req, res) =>
+  success(res, await service.listStaffs(req.query), "Get staffs successfully"),
+);
+const createStaff = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.createStaff(req.user, req.body),
+    "Staff created successfully",
+    201,
+  ),
+);
+const getStaffById = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.getStaffById(req.params.id),
+    "Get staff detail successfully",
+  ),
+);
+const changeStaffRole = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.changeStaffRole(req.user, req.params.id, req.body.role),
+    "Staff role updated successfully",
+  ),
+);
+const updateStaff = asyncHandler(async (req, res) =>
+  success(
+    res,
+    await service.updateStaff(req.user, req.params.id, req.body),
+    "Staff updated successfully",
+  ),
+);
 const updateUserStatus = asyncHandler(async (req, res) =>
   success(
     res,
@@ -93,6 +125,11 @@ module.exports = {
   updateProfile,
   uploadAvatar,
   listUsers,
+  listStaffs,
+  createStaff,
+  getStaffById,
+  changeStaffRole,
+  updateStaff,
   updateUserStatus,
   updateUserRole,
   getUserById,

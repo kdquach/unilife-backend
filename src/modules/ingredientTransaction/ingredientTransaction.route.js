@@ -2,6 +2,7 @@ const express = require("express");
 const controller = require("./ingredientTransaction.controller");
 const { authenticate } = require("../../middlewares/auth.middleware");
 const { authorize } = require("../../middlewares/role.middleware");
+const { writeActivityLog } = require("../../middlewares/activityLog.middleware");
 const ROLES = require("../../constants/roles.constant");
 
 const router = express.Router();
@@ -15,6 +16,7 @@ router.get(
 router.post(
   "/",
   authorize(ROLES.ADMIN, ROLES.MANAGER),
+  writeActivityLog("CREATE_INGREDIENT_TRANSACTION", "IngredientTransaction"),
   controller.create,
 );
 router.get(

@@ -26,9 +26,32 @@ const isSameVietnamDay = (date, referenceDate = new Date()) => {
   return value >= start && value <= end;
 };
 
+/**
+ * Get current time in Vietnam timezone (UTC+7)
+ * This is independent of system time changes
+ */
+const getCurrentVietnamTime = () => {
+  const now = new Date();
+  // Convert to UTC first, then add Vietnam offset
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const vietnamTime = new Date(utc + (3600000 * 7));
+  return vietnamTime;
+};
+
+/**
+ * Get current timestamp adjusted to Vietnam timezone
+ * This ensures consistent time regardless of system time settings
+ */
+const getCurrentVietnamTimestamp = () => {
+  const vietnamTime = getCurrentVietnamTime();
+  return vietnamTime.getTime();
+};
+
 module.exports = {
   VIETNAM_UTC_OFFSET_MINUTES,
   getDayRangeByUtcOffset,
   getVietnamDayRange,
   isSameVietnamDay,
+  getCurrentVietnamTime,
+  getCurrentVietnamTimestamp,
 };

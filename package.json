@@ -7,6 +7,8 @@
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "seed:admin": "node src/seeders/admin.seed.js",
+    "seed:all": "node src/seeders/database.seed.js",
+    "seed:all:reset": "node src/seeders/database.seed.js --reset",
     "test": "jest"
   },
   "keywords": [

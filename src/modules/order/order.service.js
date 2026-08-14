@@ -7,6 +7,7 @@ const Cart = require("../cart/cart.model");
 const CartItem = require("../cartItem/cartItem.model");
 const queueService = require("../queue/queue.service");
 const userNotificationService = require("../userNotification/userNotification.service");
+const mongoose = require("mongoose");
 const { getPagination } = require("../../utils/pagination.util");
 const {
   generateTransferContent,
@@ -19,16 +20,129 @@ const { isSameVietnamDay } = require("../../utils/date.util");
 const PAYMENT_EXPIRY_MINUTES = 15;
 
 /**
- * Generate order code: 6-digit numeric string (e.g., 234199)
+ * Check and expire orders with pending payment that have passed their expiry time
+ * This should be called periodically (e.g., every minute) to clean up expired orders
  */
-const generateOrderCode = async () => {
-  let code;
-  let exists = true;
-  while (exists) {
-    code = Math.floor(100000 + Math.random() * 900000).toString();
-    exists = await Order.findOne({ orderCode: code });
+const checkExpiredOrders = async () => {
+  const now = new Date();
+  
+  // Find all PENDING_PAYMENT orders that have expired
+  const expiredOrders = await Order.find({
+    status: "PENDING_PAYMENT",
+    expiresAt: { $lt: now },
+  });
+
+  if (expiredOrders.length === 0) {
+    return { processed: 0, details: [] };
   }
-  return code;
+
+  const processedDetails = [];
+
+  // Process each expired order
+  for (const order of expiredOrders) {
+    try {
+      // Restore stock for menu items
+      const orderItems = await OrderItem.find({ orderId: order._id });
+      
+      for (const item of orderItems) {
+        if (item.menuScheduleItemId) {
+          await MenuScheduleItem.findByIdAndUpdate(
+            item.menuScheduleItemId,
+            {
+              $inc: {
+                remainingCount: item.quantity,
+                reservedCount: -item.quantity,
+              },
+            }
+          );
+        } else if (item.foodId) {
+          // Restore stock for regular food items
+          const food = await Food.findById(item.foodId);
+          if (food && food.stockQuantity !== null) {
+            await Food.findByIdAndUpdate(
+              item.foodId,
+              {
+                $inc: {
+                  stockQuantity: item.quantity,
+                },
+              }
+            );
+          }
+        }
+      }
+
+      // Update order status to CANCELLED
+      await Order.findByIdAndUpdate(order._id, {
+        status: "CANCELLED",
+        paymentStatus: "EXPIRED",
+        note: (order.note || "") + " [EXPIRED] Payment timeout - order automatically cancelled",
+      });
+
+      processedDetails.push({
+        orderId: order._id,
+        orderCode: order.orderCode,
+        status: "CANCELLED",
+        reason: "Payment timeout",
+      });
+    } catch (error) {
+      console.error(`Error processing expired order ${order._id}:`, error);
+      processedDetails.push({
+        orderId: order._id,
+        orderCode: order.orderCode,
+        status: "ERROR",
+        error: error.message,
+      });
+    }
+  }
+
+  return {
+    processed: expiredOrders.length,
+    details: processedDetails,
+  };
+};
+
+// Order code format: UL{TYPE}{DATE}{SEQUENCE}{CHECKSUM}
+// Example: ULON1508260012
+// UL = Unilife
+// TYPE = ON (Online) or WI (Walk-in)
+// DATE = DDMMYY
+// SEQUENCE = 3-digit sequential number for the day
+// CHECKSUM = single digit for validation
+const generateOrderCode = async (orderType = "ON") => {
+  const now = new Date();
+  const dateStr = now
+    .toLocaleDateString('vi-VN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit'
+    })
+    .replace(/\//g, '');
+
+  // Get today's sequence number
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+  const todayEnd = new Date(now);
+  todayEnd.setHours(23, 59, 59, 999);
+
+  const count = await Order.countDocuments({
+    createdAt: { $gte: todayStart, $lte: todayEnd },
+    isWalkIn: orderType === "WI"
+  });
+
+  const sequence = (count + 1).toString().padStart(3, '0');
+
+  // Calculate checksum (simple sum of digits mod 10)
+  const calculateChecksum = (str) => {
+    const digits = str.replace(/\D/g, '').split('').map(Number);
+    const sum = digits.reduce((acc, digit) => acc + digit, 0);
+    return sum % 10;
+  };
+
+  const prefix = `UNI${orderType}${dateStr}${sequence}`;
+  const checksum = calculateChecksum(prefix);
+  const orderCode = `${prefix}${checksum}`;
+
+  return orderCode;
 };
 
 const create = async (data) => {
@@ -38,15 +152,18 @@ const create = async (data) => {
 
   try {
     await session.withTransaction(async () => {
-      // Validate and deduct stock for each item first
+      // Validate và trừ stock
       if (items && Array.isArray(items)) {
         for (const item of items) {
           if (item.itemType === "MENU_ITEM" || !item.itemType) {
             if (!item.menuScheduleItemId) {
-              const error = new Error("Menu schedule item ID is required for menu items.");
+              const error = new Error(
+                "Menu schedule item ID is required for menu items."
+              );
               error.statusCode = 400;
               throw error;
             }
+
             const menuScheduleItem = await MenuScheduleItem.findOneAndUpdate(
               {
                 _id: item.menuScheduleItemId,
@@ -60,38 +177,49 @@ const create = async (data) => {
               },
               { new: true, session }
             );
-            
+
             if (!menuScheduleItem) {
-              const error = new Error(`Insufficient servings remaining for menu item.`);
+              const error = new Error(
+                "Insufficient servings remaining for menu item."
+              );
               error.statusCode = 400;
               throw error;
             }
           } else if (item.itemType === "REGULAR_FOOD") {
             if (!item.foodId) {
-              const error = new Error("Food ID is required for regular food items.");
+              const error = new Error(
+                "Food ID is required for regular food items."
+              );
               error.statusCode = 400;
               throw error;
             }
-            
+
             const food = await Food.findById(item.foodId).session(session);
+
             if (!food) {
               const error = new Error("Food item not found.");
               error.statusCode = 404;
               throw error;
             }
-            
+
             if (food.stockQuantity !== null) {
               const result = await Food.findOneAndUpdate(
                 {
                   _id: food._id,
                   stockQuantity: { $gte: item.quantity },
                 },
-                { $inc: { stockQuantity: -item.quantity } },
+                {
+                  $inc: {
+                    stockQuantity: -item.quantity,
+                  },
+                },
                 { new: true, session }
               );
-              
+
               if (!result) {
-                const error = new Error(`Insufficient stock for food item ${food.name}.`);
+                const error = new Error(
+                  `Insufficient stock for food item ${food.name}.`
+                );
                 error.statusCode = 400;
                 throw error;
               }
@@ -100,23 +228,27 @@ const create = async (data) => {
         }
       }
 
-      // Generate order code
-      const count = await Order.countDocuments().session(session);
-      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-      const prefix = data.isWalkIn ? "UL-WI" : "UL-PO";
+      const orderCode = await generateOrderCode("WI");
 
-      const orderCode = `${prefix}-${dateStr}-${String(count + 1).padStart(4, "0")}`;
+      const isCash = paymentMethod === "CASH";
 
-      // Create the order document
-      const [order] = await Order.create([{
-        ...orderData,
-        orderCode,
-        status: paymentMethod === "CASH" ? "PAID" : "PENDING_PAYMENT",
-        paymentMethod: paymentMethod || "SEPAY",
-        paymentStatus: paymentMethod === "CASH" ? "PAID" : "PENDING",
-        transferContent: paymentMethod === "CASH" ? undefined : orderData.transferContent,
-        totalPrice: 0,
-      }], { session });
+      const [order] = await Order.create(
+        [
+          {
+            ...orderData,
+            orderCode,
+            status: isCash ? "CONFIRMED" : "PENDING_PAYMENT",
+            paymentMethod: paymentMethod || "SEPAY",
+            paymentStatus: isCash ? "PAID" : "PENDING",
+            paidAt: isCash ? new Date() : null,
+            transferContent: isCash
+              ? undefined
+              : orderData.transferContent,
+            totalPrice: 0,
+          },
+        ],
+        { session }
+      );
 
       let totalPrice = 0;
 
@@ -130,36 +262,59 @@ const create = async (data) => {
           } else {
             const menuScheduleItem = await MenuScheduleItem.findById(
               item.menuScheduleItemId
-            ).populate("foodId").session(session);
+            )
+              .populate("foodId")
+              .session(session);
+
             unitPrice = menuScheduleItem.foodId.price;
           }
 
           const subtotal = unitPrice * item.quantity;
           totalPrice += subtotal;
 
-          await OrderItem.create([{
-            orderId: order._id,
-            itemType: item.itemType || "MENU_ITEM",
-            menuScheduleItemId: item.menuScheduleItemId || undefined,
-            foodId: item.foodId || undefined,
-            quantity: item.quantity,
-            unitPrice,
-            subtotal,
-          }], { session });
+          await OrderItem.create(
+            [
+              {
+                orderId: order._id,
+                itemType: item.itemType || "MENU_ITEM",
+                menuScheduleItemId: item.menuScheduleItemId || undefined,
+                foodId: item.foodId || undefined,
+                quantity: item.quantity,
+                unitPrice,
+                subtotal,
+              },
+            ],
+            { session }
+          );
         }
       }
 
-      // Update order's total price
       order.totalPrice = totalPrice;
+
+      if (!isCash) {
+        const sepayConfig = getSepayConfig();
+        const transferContent = generateTransferContent(order.orderCode);
+
+        order.transferContent = transferContent;
+        order.expiresAt = new Date(
+          Date.now() + PAYMENT_EXPIRY_MINUTES * 60 * 1000
+        );
+        order.paymentInfo = {
+          bankName: sepayConfig.bankName,
+          accountNumber: sepayConfig.bankAccountNumber,
+          accountName: sepayConfig.accountName,
+          qrCodeUrl: generateQrCodeUrl(totalPrice, transferContent),
+        };
+      }
+
       await order.save({ session });
-      
+
       createdOrder = order;
     });
   } finally {
     await session.endSession();
   }
 
-  // Retrieve populated order
   return getById(createdOrder._id);
 };
 
@@ -335,7 +490,7 @@ const checkout = async (userId, data = {}) => {
   }
 
   // Generate order code and transfer content
-  const orderCode = await generateOrderCode();
+  const orderCode = await generateOrderCode("ON");
   const transferContent = generateTransferContent(orderCode);
 
   // Generate payment info
@@ -415,6 +570,7 @@ const getPaymentStatus = async (orderId, userId) => {
     totalPrice: order.totalPrice,
     transferContent: order.transferContent,
     paymentInfo: order.paymentInfo,
+    note: order.note,
     expiresAt: order.expiresAt,
     paidAt: order.paidAt,
     transactionRef: order.transactionRef,
@@ -423,12 +579,26 @@ const getPaymentStatus = async (orderId, userId) => {
 };
 
 const scanPickupQr = async (data = {}) => {
-  const result = await queueService.scanOrderQr({
-    orderId: data.orderId,
-    orderCode: data.orderCode,
-    qrPayload: data.qrPayload,
-    qrCode: data.qrCode,
-  });
+  let orderCode = data.orderCode;
+  if (!orderCode && data.qrPayload) {
+    try {
+      const parsed =
+        typeof data.qrPayload === "string"
+          ? JSON.parse(data.qrPayload)
+          : data.qrPayload;
+      orderCode = parsed.orderCode;
+    } catch (err) {
+      // ignore
+    }
+  }
+
+  if (!orderCode) {
+    const error = new Error("Order code is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const result = await queueService.scanOrderQr({ orderCode });
 
   return {
     created: result.created,
@@ -538,21 +708,38 @@ const updateById = async (id, data) => {
       );
       error.statusCode = 400;
       throw error;
-
-    if (order.paymentStatus === "PAID") {
-      order.paymentStatus = "REFUND_PENDING";
     }
 
-    order.status = "CANCELLED";
-    await order.save();
+    // Atomic CAS: prevent double-cancel race condition
+    const cancelUpdate = { status: "CANCELLED" };
+    if (order.paymentStatus === "PAID") {
+      cancelUpdate.paymentStatus = "REFUND_PENDING";
+    }
 
-    if (order.userId) {
+    const cancelledOrder = await Order.findOneAndUpdate(
+      {
+        _id: id,
+        status: { $nin: ["COMPLETED", "CANCELLED", "EXPIRED"] },
+      },
+      { $set: cancelUpdate },
+      { new: true, runValidators: true }
+    ).populate("items");
+
+    if (!cancelledOrder) {
+      const error = new Error(
+        "Order was already cancelled or completed by another request.",
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+
+    if (cancelledOrder.userId) {
       await userNotificationService
-        .notifyUser(order.userId, {
+        .notifyUser(cancelledOrder.userId, {
           title: "Order cancelled",
-          body: `Order #${order.orderCode} has been cancelled.`,
+          body: `Order #${cancelledOrder.orderCode} has been cancelled.`,
           type: "ORDER_CANCELLED",
-          createdBy: order.userId,
+          createdBy: cancelledOrder.userId,
         })
         .catch(() => null);
     }
@@ -560,27 +747,21 @@ const updateById = async (id, data) => {
     // Move any kitchen queue entry out of the active flow.
     await Queue.updateOne({ orderId: id }, { $set: { status: "SKIPPED" } });
 
-    // Restore stock/servings
-    if (order.items && Array.isArray(order.items)) {
-      for (const item of order.items) {
+    // Restore stock/servings atomically
+    if (cancelledOrder.items && Array.isArray(cancelledOrder.items)) {
+      for (const item of cancelledOrder.items) {
         if (item.itemType === "MENU_ITEM" && item.menuScheduleItemId) {
-          const menuScheduleItem = await MenuScheduleItem.findById(
-            item.menuScheduleItemId,
-          );
-          if (menuScheduleItem) {
-            menuScheduleItem.remainingCount += item.quantity;
-            menuScheduleItem.reservedCount = Math.max(
-              0,
-              menuScheduleItem.reservedCount - item.quantity,
-            );
-            await menuScheduleItem.save();
-          }
+          await MenuScheduleItem.findByIdAndUpdate(item.menuScheduleItemId, {
+            $inc: {
+              remainingCount: item.quantity,
+              reservedCount: -item.quantity,
+            },
+          });
         } else if (item.itemType === "REGULAR_FOOD" && item.foodId) {
-          const food = await Food.findById(item.foodId);
-          if (food && food.stockQuantity !== null) {
-            food.stockQuantity += item.quantity;
-            await food.save();
-          }
+          await Food.findOneAndUpdate(
+            { _id: item.foodId, stockQuantity: { $ne: null } },
+            { $inc: { stockQuantity: item.quantity } }
+          );
         }
       }
     }
@@ -609,4 +790,5 @@ module.exports = {
   deleteById,
   getPaymentStatus,
   scanPickupQr,
+  checkExpiredOrders,
 };

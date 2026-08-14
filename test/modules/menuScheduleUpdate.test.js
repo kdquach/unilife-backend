@@ -164,7 +164,7 @@ describe("Menu Schedule Update API", () => {
         .send({ date: newDateStr });
       
       expect(res.status).toBe(400);
-      expect(res.body.message).toMatch(/Cannot change date because some items are already reserved/i);
+      expect(res.body.message).toMatch(/Cannot change date because some items are already purchased/i);
     });
   });
 
@@ -193,6 +193,15 @@ describe("Menu Schedule Update API", () => {
 
     it("Test Case 8: Accept valid status transitions", async () => {
       const ms = await MenuSchedule.create({ date: new Date(Date.now() + 86400000), createdBy: adminId, status: "DRAFT" });
+      await MenuScheduleItem.create({
+        menuScheduleId: ms._id,
+        foodId,
+        maxServing: 10,
+        remainingCount: 10,
+        reservedCount: 0,
+        servedCount: 0,
+        isActive: true
+      });
       
       // DRAFT -> PUBLISHED
       const res = await request(app)
@@ -221,7 +230,7 @@ describe("Menu Schedule Update API", () => {
         .send({ status: "DRAFT" });
       
       expect(res.status).toBe(400);
-      expect(res.body.message).toMatch(/Cannot downgrade to DRAFT because some items are already reserved/i);
+      expect(res.body.message).toMatch(/Cannot downgrade to DRAFT because some items are already purchased/i);
     });
   });
 
@@ -230,6 +239,13 @@ describe("Menu Schedule Update API", () => {
     it("Test Case 10: Cancel Refund & Sync", async () => {
       const ms = await MenuSchedule.create({ date: new Date(Date.now() + 86400000), createdBy: adminId, status: "PUBLISHED" });
       
+      // Reset ingredient stock and batch to ensure test isolation
+      await Ingredient.updateOne({ name: "Update Ing" }, { $set: { currentStock: 100 } });
+      await IngredientBatch.updateMany(
+        {},
+        { $set: { remainingQuantity: 100 } }
+      );
+
       // Need to use supertest to create an item to trigger the real inventory deduction first
       const itemRes = await request(app)
         .post("/api/v1/menu-schedule-items")
@@ -270,17 +286,26 @@ describe("Menu Schedule Update API", () => {
   describe("E. Concurrency", () => {
     it("Test Case 11: Concurrent Updates (Optimistic Concurrency Control)", async () => {
       const ms = await MenuSchedule.create({ date: new Date(Date.now() + 86400000), createdBy: adminId, status: "DRAFT" });
+      await MenuScheduleItem.create({
+        menuScheduleId: ms._id,
+        foodId,
+        maxServing: 10,
+        remainingCount: 10,
+        reservedCount: 0,
+        servedCount: 0,
+        isActive: true
+      });
       
       // Fire 2 update requests in parallel without awaiting
       const resPromise1 = request(app)
         .patch(`/api/v1/menu-schedules/${ms._id}`)
         .set("Authorization", `Bearer ${adminToken}`)
-        .send({ status: "PUBLISHED" });
+        .send({ status: "PUBLISHED", __v: ms.__v });
         
       const resPromise2 = request(app)
         .patch(`/api/v1/menu-schedules/${ms._id}`)
         .set("Authorization", `Bearer ${adminToken}`)
-        .send({ status: "CANCELLED" });
+        .send({ status: "CANCELLED", __v: ms.__v });
 
       const [res1, res2] = await Promise.all([resPromise1, resPromise2]);
       

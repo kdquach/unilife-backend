@@ -49,7 +49,11 @@ const getMenuScheduleByIdForStaff = asyncHandler(async (req, res) =>
   success(res, await service.getMenuScheduleByIdForStaff(req.params.id, req.query), "Get menu schedule detail for staff successfully"),
 );
 const getToday = asyncHandler(async (req, res) =>
-  success(res, await service.getToday(), "Get today menu successfully"),
+  success(
+    res,
+    await service.getToday(req.query),
+    "Get today menu successfully"
+  )
 );
 const getById = asyncHandler(async (req, res) =>
   success(res, await service.getById(req.params.id), "Get detail successfully"),

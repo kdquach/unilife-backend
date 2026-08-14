@@ -20,10 +20,31 @@ const OTP_PURPOSES = Object.freeze({
   FORGOT_PASSWORD: "FORGOT_PASSWORD",
 });
 
+const DASHBOARD_AUDIENCE = "DASHBOARD";
+const DASHBOARD_ALLOWED_ROLES = new Set([
+  ROLES.ADMIN,
+  ROLES.MANAGER,
+  ROLES.COUNTER_STAFF,
+  ROLES.KITCHEN_STAFF,
+]);
+const DASHBOARD_ACCESS_MESSAGE =
+  "This dashboard is only available to canteen staff and managers. Customer accounts cannot reset passwords here.";
+
 const hashToken = (token) =>
   crypto.createHash("sha256").update(token).digest("hex");
 const daysFromNow = (days) => new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
+
+const ensureDashboardPasswordResetAccess = (user, audience) => {
+  if (
+    audience === DASHBOARD_AUDIENCE &&
+    !DASHBOARD_ALLOWED_ROLES.has(user.role)
+  ) {
+    const err = new Error(DASHBOARD_ACCESS_MESSAGE);
+    err.statusCode = 403;
+    throw err;
+  }
+};
 
 const toSafeUser = (user) => ({
   id: user._id,
@@ -68,17 +89,24 @@ const findValidOtp = async (userId, purpose, otp) => {
 };
 
 const issueRegistrationOtp = async (user) => {
+  const otp = generateOtp();
+  const expiresAt = addMinutes(10);
+
+  // Gửi email trước
+  await sendRegistrationOtp(user.email, otp);
+
+  // Chỉ vô hiệu hóa OTP cũ sau khi email gửi thành công
   await OTP.updateMany(
     {
       userId: user._id,
       purpose: OTP_PURPOSES.REGISTER,
       isUsed: false,
     },
-    { isUsed: true },
+    {
+      isUsed: true,
+    }
   );
 
-  const otp = generateOtp();
-  const expiresAt = addMinutes(10);
   await OTP.create({
     userId: user._id,
     code: await hashPassword(otp),
@@ -87,7 +115,6 @@ const issueRegistrationOtp = async (user) => {
     expiresAt,
   });
 
-  await sendRegistrationOtp(user.email, otp);
   return expiresAt;
 };
 
@@ -117,30 +144,32 @@ const issueForgotPasswordOtp = async (user) => {
 
 const register = async (data) => {
   const email = normalizeEmail(data.email);
-  const existing = await User.findOne({ email });
-  if (existing) {
-    if (existing.isEmailVerified === false) {
-      existing.fullName = data.fullName;
-      existing.phone = data.phone;
-      existing.passwordHash = await hashPassword(data.password);
-      existing.role = ROLES.CUSTOMER;
-      existing.avatarUrl = data.avatarUrl || null;
-      existing.isActive = true;
-      await existing.save();
+  const phone = String(data.phone || "").trim();
 
-      const otpExpiresAt = await issueRegistrationOtp(existing);
-      return { user: toSafeUser(existing), otpExpiresAt };
-    }
+  // CHECK EMAIL ĐÃ TỒN TẠI CHƯA
+  const existingEmail = await User.findOne({ email });
 
+  // CHỈ CẦN TỒN TẠI → BÁO LỖI
+  if (existingEmail) {
     const err = new Error("Email already exists");
     err.statusCode = 409;
     throw err;
   }
 
+  // CHECK PHONE ĐÃ TỒN TẠI CHƯA
+  const existingPhone = await User.findOne({ phone });
+
+  if (existingPhone) {
+    const err = new Error("Phone number already exists");
+    err.statusCode = 409;
+    throw err;
+  }
+
+  // EMAIL CHƯA TỒN TẠI → TẠO USER
   const user = await User.create({
     fullName: data.fullName,
     email,
-    phone: data.phone,
+    phone,
     passwordHash: await hashPassword(data.password),
     role: ROLES.CUSTOMER,
     avatarUrl: data.avatarUrl || null,
@@ -148,8 +177,20 @@ const register = async (data) => {
     isEmailVerified: false,
   });
 
-  const otpExpiresAt = await issueRegistrationOtp(user);
-  return { user: toSafeUser(user), otpExpiresAt };
+  // GỬI OTP
+  try {
+    const otpExpiresAt = await issueRegistrationOtp(user);
+
+    return {
+      user: toSafeUser(user),
+      otpExpiresAt,
+    };
+  } catch (error) {
+    // Gửi email thất bại → xóa user vừa tạo
+    await User.findByIdAndDelete(user._id);
+
+    throw error;
+  }
 };
 
 const verifyRegisterOtp = async ({ email, otp, rememberMe }, req) => {
@@ -252,23 +293,25 @@ const logout = async (userId) => {
   return true;
 };
 
-const requestForgotPasswordOtp = async ({ email }) => {
+const requestForgotPasswordOtp = async ({ email, audience }) => {
   const user = await User.findOne({ email: normalizeEmail(email) });
   if (!user || !user.isActive || user.isEmailVerified === false) return true;
 
+  ensureDashboardPasswordResetAccess(user, audience);
   await issueForgotPasswordOtp(user);
   return true;
 };
 
-const resendForgotPasswordOtp = async ({ email }) => {
+const resendForgotPasswordOtp = async ({ email, audience }) => {
   const user = await User.findOne({ email: normalizeEmail(email) });
   if (!user || !user.isActive || user.isEmailVerified === false) return true;
 
+  ensureDashboardPasswordResetAccess(user, audience);
   await issueForgotPasswordOtp(user);
   return true;
 };
 
-const resetPassword = async ({ email, otp, newPassword }) => {
+const resetPassword = async ({ email, otp, newPassword, audience }) => {
   const user = await User.findOne({ email: normalizeEmail(email) }).select(
     "+passwordHash",
   );
@@ -278,6 +321,7 @@ const resetPassword = async ({ email, otp, newPassword }) => {
     throw err;
   }
 
+  ensureDashboardPasswordResetAccess(user, audience);
   const matchedOtp = await findValidOtp(
     user._id,
     OTP_PURPOSES.FORGOT_PASSWORD,

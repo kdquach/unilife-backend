@@ -6,7 +6,13 @@ dns.setServers(["8.8.8.8", "1.1.1.1"]);
 const connectDB = async () => {
   try {
     if (!process.env.MONGODB_URI) throw new Error("MONGODB_URI is missing");
-    await mongoose.connect(process.env.MONGODB_URI);
+    await mongoose.connect(process.env.MONGODB_URI, {
+      dbName: process.env.MONGODB_DB_NAME || undefined,
+      maxPoolSize: 50,
+      minPoolSize: 5,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+    });
     console.log("MongoDB Atlas connected");
   } catch (error) {
     console.error("MongoDB connection failed:", error.message);

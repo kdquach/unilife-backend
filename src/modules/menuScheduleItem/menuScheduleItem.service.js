@@ -3,39 +3,111 @@ const MenuScheduleItem = require("./menuScheduleItem.model");
 const MenuSchedule = require("../menuSchedule/menuSchedule.model");
 const Food = require("../food/food.model");
 const FoodIngredient = require("../foodIngredient/foodIngredient.model");
+const Ingredient = require("../ingredient/ingredient.model");
 const ingredientService = require("../ingredient/ingredient.service");
 const { getPagination } = require("../../utils/pagination.util");
 const { getVietnamDayRange } = require("../../utils/date.util");
 
 const dateOnly = (value) => {
   if (Array.isArray(value)) value = value[0];
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
   return String(value || "").slice(0, 10);
+};
+
+const getDocumentId = (value) => value?._id || value || null;
+
+const buildMenuInventoryMetadata = ({
+  action,
+  source,
+  schedule,
+  itemId,
+  food,
+  ingredient,
+  servingCount,
+  quantityPerServing,
+}) => ({
+  source,
+  action,
+  menuScheduleId: getDocumentId(schedule),
+  menuScheduleItemId: itemId || null,
+  foodId: getDocumentId(food),
+  foodName: food?.name || null,
+  menuDate: schedule?.date ? dateOnly(schedule.date) : null,
+  servingCount,
+  quantityPerServing,
+  ingredientName: ingredient?.name || null,
+  ingredientUnit: ingredient?.unit || null,
+});
+
+const createError = (message, statusCode = 400) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
+
+const getRecipeIngredientId = (recipeItem) =>
+  recipeItem?.ingredientId?._id || recipeItem?.ingredientId;
+
+const assertRecipeHasTrackableIngredients = (recipe, foodName) => {
+  const validRecipeItems = recipe.filter(
+    (item) =>
+      getRecipeIngredientId(item) &&
+      Number(item.quantityPerServing || 0) > 0,
+  );
+
+  if (validRecipeItems.length === 0) {
+    throw createError(
+      `Food "${foodName}" must have at least one ingredient with quantity per serving before it can be added to a menu`
+    );
+  }
+};
+
+const assertRecipeIngredientsUsable = (recipe, foodName) => {
+  const unavailableIngredients = recipe
+    .map((item) => item.ingredientId)
+    .filter((ingredient) => !ingredient || ingredient.isDeleted || ingredient.isActive === false)
+    .map((ingredient) => ({
+      name: ingredient?.name || "Unknown ingredient",
+      status: !ingredient
+        ? "missing"
+        : ingredient.isDeleted
+          ? "deleted"
+          : "inactive",
+    }));
+
+  if (unavailableIngredients.length === 0) return;
+
+  const groupedIngredients = unavailableIngredients.reduce((acc, item) => {
+    if (!acc[item.status]) acc[item.status] = new Set();
+    acc[item.status].add(item.name);
+    return acc;
+  }, {});
+
+  const buildNames = (status) =>
+    Array.from(groupedIngredients[status] || [])
+      .map((name) => `"${name}"`)
+      .join(", ");
+
+  const details = [
+    groupedIngredients.deleted
+      ? `deleted ingredient(s): ${buildNames("deleted")}`
+      : null,
+    groupedIngredients.inactive
+      ? `inactive ingredient(s): ${buildNames("inactive")}`
+      : null,
+    groupedIngredients.missing
+      ? `missing ingredient(s): ${buildNames("missing")}`
+      : null,
+  ].filter(Boolean).join("; ");
+
+  throw createError(
+    `Cannot add "${foodName}" to the menu because its recipe contains ${details}. Please update the recipe before adding this food to a menu.`,
+  );
 };
 
 const create = async (data, user) => {
   const { menuScheduleId, foodId, maxServing } = data;
-
-  const schedule = await MenuSchedule.findById(menuScheduleId);
-  if (!schedule) {
-    const error = new Error("Menu schedule not found");
-    error.statusCode = 400;
-    throw error;
-  }
   
-  const { start: todayStart } = getVietnamDayRange(dateOnly(new Date()));
-  const scheduleStart = getVietnamDayRange(dateOnly(schedule.date)).start;
-  if (scheduleStart < todayStart) {
-    const error = new Error("Cannot add items to a frozen/past menu schedule");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (schedule.status === "CANCELLED" || schedule.status === "COMPLETED") {
-    const error = new Error(`Cannot add items to a ${schedule.status} menu schedule`);
-    error.statusCode = 400;
-    throw error;
-  }
-
   const food = await Food.findById(foodId);
   if (!food) {
     const error = new Error("Food not found");
@@ -48,32 +120,144 @@ const create = async (data, user) => {
 
   try {
     await session.withTransaction(async () => {
-      const recipe = await FoodIngredient.find({ foodId }).session(session);
+      const schedule = await MenuSchedule.findById(menuScheduleId).session(session);
+      if (!schedule) {
+        const error = new Error("Menu schedule not found");
+        error.statusCode = 400;
+        throw error;
+      }
+      
+      const { start: todayStart } = getVietnamDayRange();
+      const scheduleStart = getVietnamDayRange(schedule.date).start;
+      if (scheduleStart < todayStart) {
+        const error = new Error("Cannot add items to a frozen/past menu schedule");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      if (schedule.status === "CANCELLED" || schedule.status === "COMPLETED") {
+        const error = new Error(`Cannot add items to a ${schedule.status} menu schedule`);
+        error.statusCode = 400;
+        throw error;
+      }
+
+      // Lock the schedule document to prevent write skew / race conditions with schedule cancellation
+      schedule.increment();
+      await schedule.save({ session });
+
+      const recipe = await FoodIngredient.find({ foodId }).populate("ingredientId").session(session);
+      assertRecipeHasTrackableIngredients(recipe, food.name);
+      assertRecipeIngredientsUsable(recipe, food.name);
       const recipeSnapshot = recipe.map((r) => ({
-        ingredientId: r.ingredientId,
+        ingredientId: getRecipeIngredientId(r),
         quantityPerServing: r.quantityPerServing,
       }));
 
       const finalMaxServing = Math.max(0, parseInt(maxServing) || 0);
+      const itemId = new mongoose.Types.ObjectId();
       const deductedBatches = [];
 
       // Sort A-Z to prevent deadlock
-      recipe.sort((a, b) => String(a.ingredientId).localeCompare(String(b.ingredientId)));
+      recipe.sort((a, b) => {
+        const idA = a.ingredientId._id ? String(a.ingredientId._id) : String(a.ingredientId);
+        const idB = b.ingredientId._id ? String(b.ingredientId._id) : String(b.ingredientId);
+        return idA.localeCompare(idB);
+      });
 
-      for (const r of recipe) {
-        const totalQty = r.quantityPerServing * finalMaxServing;
-        if (totalQty > 0) {
-          const adjData = {
-            adjustmentType: "DECREASE",
-            quantity: totalQty,
-            reason: `Deducted for Menu Schedule: ${schedule.date.toISOString().split('T')[0]}`,
-            referenceType: "MENU_SCHEDULE",
-          };
-          const res = await ingredientService.adjustStock(r.ingredientId, adjData, user, session);
-          const affected = res.transaction.metadata.affectedBatches;
-          for (const batch of affected) {
+     const insufficientIngredients = [];
+
+for (const recipeItem of recipe) {
+  const ingredient = await Ingredient.findById(
+    recipeItem.ingredientId
+  ).session(session);
+
+  if (!ingredient) {
+    const error = new Error(
+      `Ingredient not found: ${recipeItem.ingredientId}`
+    );
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const requiredQuantity =
+    recipeItem.quantityPerServing * finalMaxServing;
+
+  const availableQuantity = ingredient.currentStock || 0;
+
+  if (availableQuantity < requiredQuantity) {
+    insufficientIngredients.push({
+      name: ingredient.name,
+      required: requiredQuantity,
+      available: availableQuantity,
+      shortage: requiredQuantity - availableQuantity,
+      unit: ingredient.unit || "kg",
+    });
+
+    // Không throw ở đây
+    continue;
+  }
+
+  // Chỉ deduct sau khi kiểm tra tất cả nguyên liệu
+}
+
+if (insufficientIngredients.length > 0) {
+  const details = insufficientIngredients
+    .map(
+      (item) =>
+        `"${item.name}" - Required: ${item.required} ${item.unit}, ` +
+        `Available: ${item.available} ${item.unit}, ` +
+        `Shortage: ${item.shortage} ${item.unit}`
+    )
+    .join("; ");
+
+  const error = new Error(
+    `Insufficient ingredients for food "${food.name}": ${details}`
+  );
+
+  error.statusCode = 400;
+  throw error;
+}
+
+      for (const recipeItem of recipe) {
+        const totalQty = recipeItem.quantityPerServing * finalMaxServing;
+        if (totalQty <= 0) continue;
+
+        const ingredientId = getRecipeIngredientId(recipeItem);
+        const ingredient = recipeItem.ingredientId?._id
+          ? recipeItem.ingredientId
+          : await Ingredient.findById(ingredientId).session(session);
+
+        const adjData = {
+          adjustmentType: "DECREASE",
+          quantity: totalQty,
+          transactionType: "MENU_USAGE",
+          reason: `Used for menu item "${food.name}" on ${dateOnly(schedule.date)}`,
+          referenceType: "MENU_SCHEDULE_ITEM",
+          referenceId: itemId,
+          metadata: buildMenuInventoryMetadata({
+            action: "CREATE_MENU_ITEM",
+            source: "MENU_SCHEDULE_ITEM",
+            schedule,
+            itemId,
+            food,
+            ingredient,
+            servingCount: finalMaxServing,
+            quantityPerServing: recipeItem.quantityPerServing,
+          }),
+        };
+
+        const result = await ingredientService.adjustStock(
+          ingredientId,
+          adjData,
+          user,
+          session
+        );
+
+        const affectedBatches = result.transaction.metadata.affectedBatches;
+        if (Array.isArray(affectedBatches)) {
+          for (const batch of affectedBatches) {
             deductedBatches.push({
-              ingredientId: r.ingredientId,
+              ingredientId,
               batchId: batch.batchId,
               quantity: Math.abs(batch.quantity),
             });
@@ -82,6 +266,7 @@ const create = async (data, user) => {
       }
 
       const cleanData = {
+        _id: itemId,
         menuScheduleId,
         foodId,
         maxServing: finalMaxServing,
@@ -110,6 +295,313 @@ const create = async (data, user) => {
   }
 
   return createdItem;
+};
+
+const createBulk = async (data, user) => {
+  const { menuScheduleId, items } = data;
+  if (!Array.isArray(items) || items.length === 0) {
+    const error = new Error("Items array is required and must not be empty");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  // Check duplicate foodIds in payload
+  const foodIdSet = new Set();
+  for (const item of items) {
+    if (foodIdSet.has(String(item.foodId))) {
+      const error = new Error("Duplicate food items found in request");
+      error.statusCode = 400;
+      throw error;
+    }
+    foodIdSet.add(String(item.foodId));
+  }
+
+  // Verify all foods exist
+  const foodIds = items.map((i) => i.foodId);
+  const foundFoods = await Food.find({ _id: { $in: foodIds } });
+  if (foundFoods.length !== foodIds.length) {
+    const error = new Error("One or more food items were not found");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const session = await mongoose.startSession();
+  let createdItems = [];
+
+  try {
+    await session.withTransaction(async () => {
+      const schedule = await MenuSchedule.findById(menuScheduleId).session(session);
+      if (!schedule) {
+        const error = new Error("Menu schedule not found");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const { start: todayStart } = getVietnamDayRange();
+      const scheduleStart = getVietnamDayRange(schedule.date).start;
+      if (scheduleStart < todayStart) {
+        const error = new Error("Cannot add items to a frozen/past menu schedule");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      if (schedule.status === "CANCELLED" || schedule.status === "COMPLETED") {
+        const error = new Error(`Cannot add items to a ${schedule.status} menu schedule`);
+        error.statusCode = 400;
+        throw error;
+      }
+
+      // Lock the schedule document to prevent write skew / race conditions
+      schedule.increment();
+      await schedule.save({ session });
+
+
+const docsToCreate = [];
+
+// Gom lỗi của TẤT CẢ món
+const insufficientFoods = [];
+
+for (const itemData of items) {
+  const foodId = itemData.foodId;
+  const maxServing = itemData.maxServing;
+
+  const food = foundFoods.find(
+    (f) => String(f._id) === String(foodId)
+  );
+
+  const foodName = food ? food.name : "Món ăn";
+
+  const recipe = await FoodIngredient.find({ foodId })
+    .populate("ingredientId")
+    .session(session);
+  assertRecipeHasTrackableIngredients(recipe, foodName);
+  assertRecipeIngredientsUsable(recipe, foodName);
+
+  const recipeSnapshot = recipe.map((r) => ({
+    ingredientId: getRecipeIngredientId(r),
+    quantityPerServing: r.quantityPerServing,
+  }));
+
+  const finalMaxServing = Math.max(
+    0,
+    parseInt(maxServing) || 0
+  );
+
+  const itemId = new mongoose.Types.ObjectId();
+  const deductedBatches = [];
+
+  // Sort A-Z để tránh deadlock
+  recipe.sort((a, b) => {
+    const idA = a.ingredientId._id
+      ? String(a.ingredientId._id)
+      : String(a.ingredientId);
+
+    const idB = b.ingredientId._id
+      ? String(b.ingredientId._id)
+      : String(b.ingredientId);
+
+    return idA.localeCompare(idB);
+  });
+
+  // ==========================================
+  // THIẾU NGUYÊN LIỆU CỦA RIÊNG MÓN NÀY
+  // ==========================================
+  const insufficientIngredients = [];
+
+  // ==========================================
+  // 1. KIỂM TRA TẤT CẢ NGUYÊN LIỆU
+  // ==========================================
+  for (const r of recipe) {
+    const totalQty =
+      r.quantityPerServing * finalMaxServing;
+
+    if (totalQty <= 0) {
+      continue;
+    }
+
+    const ingId =
+      r.ingredientId._id || r.ingredientId;
+
+    const ingDoc = r.ingredientId._id
+      ? r.ingredientId
+      : await Ingredient.findById(ingId).session(session);
+
+    const ingName =
+      ingDoc?.name || "Nguyên liệu";
+
+    const ingUnit =
+      ingDoc?.unit || "kg";
+
+    const currentStock =
+      ingDoc?.currentStock !== undefined
+        ? ingDoc.currentStock
+        : 0;
+
+    if (currentStock < totalQty) {
+      insufficientIngredients.push({
+        name: ingName,
+        required: totalQty,
+        available: currentStock,
+        shortage: totalQty - currentStock,
+        unit: ingUnit,
+      });
+
+      continue;
+    }
+  }
+
+  // ==========================================
+  // 2. MÓN NÀY THIẾU NGUYÊN LIỆU
+  // ==========================================
+  if (insufficientIngredients.length > 0) {
+    insufficientFoods.push({
+      foodName,
+      ingredients: insufficientIngredients,
+    });
+
+    // Không deduct
+    // Không tạo MenuScheduleItem
+    // Tiếp tục kiểm tra món tiếp theo
+    continue;
+  }
+
+  // ==========================================
+  // 3. MÓN ĐỦ NGUYÊN LIỆU -> DEDUCT
+  // ==========================================
+  for (const r of recipe) {
+    const totalQty =
+      r.quantityPerServing * finalMaxServing;
+
+    if (totalQty <= 0) {
+      continue;
+    }
+
+    const ingId =
+      r.ingredientId._id || r.ingredientId;
+
+    const ingDoc = r.ingredientId._id
+      ? r.ingredientId
+      : await Ingredient.findById(ingId).session(session);
+
+    const adjData = {
+      adjustmentType: "DECREASE",
+      quantity: totalQty,
+      transactionType: "MENU_USAGE",
+      reason: `Used for menu item "${foodName}" on ${dateOnly(
+        schedule.date
+      )}`,
+      referenceType: "MENU_SCHEDULE_ITEM",
+      referenceId: itemId,
+
+      metadata: buildMenuInventoryMetadata({
+        action: "CREATE_MENU_ITEM_BULK",
+        source: "MENU_SCHEDULE_ITEM",
+        schedule,
+        itemId,
+        food,
+        ingredient: ingDoc,
+        servingCount: finalMaxServing,
+        quantityPerServing: r.quantityPerServing,
+      }),
+    };
+
+    const res = await ingredientService.adjustStock(
+      ingId,
+      adjData,
+      user,
+      session
+    );
+
+    const affected =
+      res.transaction.metadata.affectedBatches;
+
+    if (Array.isArray(affected)) {
+      for (const batch of affected) {
+        deductedBatches.push({
+          ingredientId: ingId,
+          batchId: batch.batchId,
+          quantity: Math.abs(batch.quantity),
+        });
+      }
+    }
+  }
+
+  // ==========================================
+  // 4. LƯU MÓN ĐỦ NGUYÊN LIỆU
+  // ==========================================
+  docsToCreate.push({
+    _id: itemId,
+    menuScheduleId,
+    foodId,
+    maxServing: finalMaxServing,
+
+    isActive:
+      itemData.isActive !== undefined
+        ? itemData.isActive
+        : true,
+
+    remainingCount: finalMaxServing,
+    reservedCount: 0,
+    servedCount: 0,
+
+    recipeSnapshot,
+    deductedBatches,
+  });
+}
+
+// ==========================================
+// 5. SAU KHI KIỂM TRA TẤT CẢ MÓN
+// ==========================================
+if (insufficientFoods.length > 0) {
+  const details = insufficientFoods
+    .map((food) => {
+      const ingredientDetails = food.ingredients
+        .map(
+          (item) =>
+            `"${item.name}" - Required: ${item.required} ${item.unit}, ` +
+            `Available: ${item.available} ${item.unit}, ` +
+            `Shortage: ${item.shortage} ${item.unit}`
+        )
+        .join("; ");
+
+      return `"${food.foodName}": ${ingredientDetails}`;
+    })
+    .join(" | ");
+
+  const error = new Error(
+    `Insufficient ingredients: ${details}`
+  );
+
+  error.statusCode = 400;
+  throw error;
+}
+
+// ==========================================
+// 6. INSERT CÁC MÓN ĐỦ NGUYÊN LIỆU
+// ==========================================
+try {
+  createdItems = await MenuScheduleItem.insertMany(
+    docsToCreate,
+    { session }
+  );
+} catch (err) {
+  if (err.code === 11000) {
+    const error = new Error(
+      "One or more food items are already added to this menu schedule"
+    );
+
+    error.statusCode = 400;
+    throw error;
+  }
+
+  throw err;
+}
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  return createdItems;
 };
 
 const list = async (query = {}) => {
@@ -152,6 +644,9 @@ const getById = (id) =>
 const performRefund = async (item, refundQuantity, user, session) => {
   if (refundQuantity <= 0) return;
   
+  const schedule = item.menuScheduleId;
+  const food = await Food.findById(item.foodId).session(session);
+  const foodName = food?.name || "Menu item";
   const recipe = item.recipeSnapshot || [];
   recipe.sort((a, b) => String(a.ingredientId).localeCompare(String(b.ingredientId)));
 
@@ -159,8 +654,9 @@ const performRefund = async (item, refundQuantity, user, session) => {
     let qtyToRefund = r.quantityPerServing * refundQuantity;
     if (qtyToRefund <= 0) continue;
 
+    const ingredient = await Ingredient.findById(r.ingredientId).session(session);
     // Find batches deducted for this ingredient, process in reverse to refund newest deductions first
-    const ingredientBatches = item.deductedBatches
+    const ingredientBatches = (item.deductedBatches || [])
       .filter((b) => String(b.ingredientId) === String(r.ingredientId))
       .reverse();
 
@@ -172,8 +668,20 @@ const performRefund = async (item, refundQuantity, user, session) => {
           adjustmentType: "INCREASE",
           quantity: refundFromThisBatch,
           batchId: b.batchId,
-          reason: `Refunded from Menu Schedule (Reduced/Cancelled)`,
-          referenceType: "MENU_SCHEDULE_REFUND",
+          transactionType: "STOCK_IN",
+          reason: `Returned from menu item "${foodName}" after reduced or cancelled servings`,
+          referenceType: "MENU_SCHEDULE_ITEM",
+          referenceId: item._id,
+          metadata: buildMenuInventoryMetadata({
+            action: "REFUND_MENU_ITEM_STOCK",
+            source: "MENU_SCHEDULE_ITEM",
+            schedule,
+            itemId: item._id,
+            food,
+            ingredient,
+            servingCount: refundQuantity,
+            quantityPerServing: r.quantityPerServing,
+          }),
         };
         await ingredientService.adjustStock(r.ingredientId, adjData, user, session);
         b.quantity -= refundFromThisBatch;
@@ -183,11 +691,15 @@ const performRefund = async (item, refundQuantity, user, session) => {
   }
 
   // Clean up batches with 0 quantity
-  item.deductedBatches = item.deductedBatches.filter((b) => b.quantity > 0);
+  item.deductedBatches = (item.deductedBatches || []).filter((b) => b.quantity > 0);
 };
 
 const performIncrease = async (item, increaseQuantity, user, session) => {
   if (increaseQuantity <= 0) return;
+
+  const schedule = item.menuScheduleId;
+  const food = await Food.findById(item.foodId).session(session);
+  const foodName = food ? food.name : "Món ăn";
 
   const recipe = item.recipeSnapshot || [];
   recipe.sort((a, b) => String(a.ingredientId).localeCompare(String(b.ingredientId)));
@@ -195,28 +707,64 @@ const performIncrease = async (item, increaseQuantity, user, session) => {
   for (const r of recipe) {
     const totalQty = r.quantityPerServing * increaseQuantity;
     if (totalQty > 0) {
+      const ingredient = await Ingredient.findById(r.ingredientId).session(session);
+      const ingName = ingredient ? ingredient.name : "Nguyên liệu";
+      const ingUnit = ingredient ? ingredient.unit || "" : "";
+      const currentStock = ingredient ? ingredient.currentStock || 0 : 0;
+
+      if (currentStock < totalQty) {
+        const shortage = totalQty - currentStock;
+        const error = new Error(
+          `Insufficient ingredient "${ingName}" for food "${foodName}". Required increase: ${totalQty} ${ingUnit}, Available in stock: ${currentStock} ${ingUnit} (Shortage: ${shortage} ${ingUnit})`
+        );
+        error.statusCode = 400;
+        throw error;
+      }
+
       const adjData = {
         adjustmentType: "DECREASE",
         quantity: totalQty,
-        reason: `Deducted for Menu Schedule Increase`,
-        referenceType: "MENU_SCHEDULE",
+        transactionType: "MENU_USAGE",
+        reason: `Used for menu item "${foodName}" after serving increase`,
+        referenceType: "MENU_SCHEDULE_ITEM",
+        referenceId: item._id,
+        metadata: buildMenuInventoryMetadata({
+          action: "INCREASE_MENU_ITEM_SERVINGS",
+          source: "MENU_SCHEDULE_ITEM",
+          schedule,
+          itemId: item._id,
+          food,
+          ingredient,
+          servingCount: increaseQuantity,
+          quantityPerServing: r.quantityPerServing,
+        }),
       };
-      const res = await ingredientService.adjustStock(r.ingredientId, adjData, user, session);
-      const affected = res.transaction.metadata.affectedBatches;
-      for (const batch of affected) {
-        // Find existing batch entry or add new
-        const existingBatch = item.deductedBatches.find(
-          (b) => String(b.ingredientId) === String(r.ingredientId) && String(b.batchId) === String(batch.batchId)
-        );
-        if (existingBatch) {
-          existingBatch.quantity += Math.abs(batch.quantity);
-        } else {
-          item.deductedBatches.push({
-            ingredientId: r.ingredientId,
-            batchId: batch.batchId,
-            quantity: Math.abs(batch.quantity),
-          });
+      try {
+        const res = await ingredientService.adjustStock(r.ingredientId, adjData, user, session);
+        const affected = res.transaction.metadata.affectedBatches;
+        if (!Array.isArray(item.deductedBatches)) item.deductedBatches = [];
+        for (const batch of affected) {
+          // Find existing batch entry or add new
+          const existingBatch = item.deductedBatches.find(
+            (b) => String(b.ingredientId) === String(r.ingredientId) && String(b.batchId) === String(batch.batchId)
+          );
+          if (existingBatch) {
+            existingBatch.quantity += Math.abs(batch.quantity);
+          } else {
+            item.deductedBatches.push({
+              ingredientId: r.ingredientId,
+              batchId: batch.batchId,
+              quantity: Math.abs(batch.quantity),
+            });
+          }
         }
+      } catch (err) {
+        const shortage = Math.max(0, totalQty - currentStock);
+        const error = new Error(
+          `Insufficient ingredient "${ingName}" for food "${foodName}". Required increase: ${totalQty} ${ingUnit}, Available in stock: ${currentStock} ${ingUnit}${shortage > 0 ? ` (Shortage: ${shortage} ${ingUnit})` : ''}`
+        );
+        error.statusCode = 400;
+        throw error;
       }
     }
   }
@@ -235,14 +783,34 @@ const updateById = async (id, data, user) => {
         throw error;
       }
 
+      if (data.__v !== undefined && item.__v !== data.__v) {
+        const error = new Error("Data was modified by another user. Please retry.");
+        error.statusCode = 409;
+        throw error;
+      }
+
+      let isFutureSchedule = false;
+
       if (item.menuScheduleId) {
-        const { start: todayStart } = getVietnamDayRange(dateOnly(new Date()));
-        const scheduleStart = getVietnamDayRange(dateOnly(item.menuScheduleId.date)).start;
+        if (item.menuScheduleId.status === "CANCELLED" || item.menuScheduleId.status === "COMPLETED") {
+          const error = new Error(`Cannot modify items in a ${item.menuScheduleId.status} menu schedule`);
+          error.statusCode = 400;
+          throw error;
+        }
+
+        const { start: todayStart } = getVietnamDayRange();
+        const scheduleStart = getVietnamDayRange(item.menuScheduleId.date).start;
         if (scheduleStart < todayStart) {
           const error = new Error("Cannot modify a frozen/past menu schedule item");
           error.statusCode = 400;
           throw error;
         }
+        
+        isFutureSchedule = scheduleStart > todayStart;
+
+        // Lock the schedule document to prevent write skew / race conditions with schedule cancellation
+        item.menuScheduleId.increment();
+        await item.menuScheduleId.save({ session });
       }
 
       let newMaxServing = item.maxServing;
@@ -272,7 +840,7 @@ const updateById = async (id, data, user) => {
 
       if (diff > 0) {
         await performIncrease(item, diff, user, session);
-      } else if (diff < 0) {
+      } else if (diff < 0 && isFutureSchedule) {
         await performRefund(item, Math.abs(diff), user, session);
       }
 
@@ -306,5 +874,5 @@ const deleteById = async (id) => {
 };
 
 // Export internal functions for menuSchedule.service to use in bulk operations
-module.exports = { create, list, getById, updateById, deleteById, internalPerformRefund: performRefund };
+module.exports = { create, createBulk, list, getById, updateById, deleteById, internalPerformRefund: performRefund };
 

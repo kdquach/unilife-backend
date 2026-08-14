@@ -1,24 +1,550 @@
+const mongoose = require("mongoose");
+require("../user/user.model");
+require("../food/food.model");
+require("../order/order.model");
+require("../menuScheduleItem/menuScheduleItem.model");
 const Rating = require("./rating.model");
+const Order = require("../order/order.model");
+const OrderItem = require("../orderItem/orderItem.model");
 const { getPagination } = require("../../utils/pagination.util");
+const { getVietnamDayRange } = require("../../utils/date.util");
+const createError = (message, statusCode = 400) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
 
-const create = (data) => Rating.create(data);
+const escapeRegExp = (value = "") =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+const getObjectId = (value, fieldName) => {
+  if (!value || !mongoose.Types.ObjectId.isValid(value)) {
+    throw createError(`Invalid ${fieldName}`);
+  }
+
+  return value;
+};
+
+const getOptionalObjectId = (value, fieldName) => {
+  if (!value) return null;
+  if (!mongoose.Types.ObjectId.isValid(value)) {
+    throw createError(`Invalid ${fieldName}`);
+  }
+
+  return value;
+};
+
+const getStars = (value) => {
+  const stars = Number(value);
+  if (!Number.isInteger(stars) || stars < 1 || stars > 5) {
+    throw createError("stars must be an integer from 1 to 5");
+  }
+
+  return stars;
+};
+
+const getComment = (value) => {
+  if (value === undefined || value === null) return null;
+  const comment = String(value).trim();
+  if (comment.length > 1000) {
+    throw createError("comment must be less than or equal to 1000 characters");
+  }
+
+  return comment || null;
+};
+
+const getRatingType = (value, foodId) => {
+  const ratingType = String(value || (foodId ? "FOOD" : "ORDER"))
+    .trim()
+    .toUpperCase();
+  if (!["ORDER", "FOOD"].includes(ratingType)) {
+    throw createError("ratingType must be ORDER or FOOD");
+  }
+
+  if (ratingType === "FOOD" && !foodId) {
+    throw createError("foodId is required for FOOD rating");
+  }
+
+  if (ratingType === "ORDER" && foodId) {
+    throw createError("foodId is only allowed for FOOD rating");
+  }
+
+  return ratingType;
+};
+
+const addAndClause = (filter, clause) => {
+  if (!filter.$and) filter.$and = [];
+  filter.$and.push(clause);
+};
+
+const populateRating = (query) =>
+  query
+    .populate("userId", "fullName email avatarUrl")
+    .populate("orderId", "orderCode status paymentStatus createdAt")
+    .populate("foodId", "name imageUrl price")
+    .populate("repliedBy", "fullName email role");
+
+const assertAllowedCreateFields = (data = {}) => {
+  const allowedFields = new Set([
+    "orderId",
+    "orderItemId",
+    "foodId",
+    "ratingType",
+    "stars",
+    "comment",
+  ]);
+  const unknownFields = Object.keys(data || {}).filter(
+    (field) => !allowedFields.has(field),
+  );
+
+  if (unknownFields.length > 0) {
+    throw createError(`Unsupported field(s): ${unknownFields.join(", ")}`);
+  }
+};
+
+const assertAllowedUpdateFields = (data = {}) => {
+  const allowedFields = new Set(["stars", "comment"]);
+  const unknownFields = Object.keys(data || {}).filter(
+    (field) => !allowedFields.has(field),
+  );
+
+  if (unknownFields.length > 0) {
+    throw createError(`Unsupported field(s): ${unknownFields.join(", ")}`);
+  }
+};
+
+const ensureCompletedOrderForReview = async (userId, orderId) => {
+  const order = await Order.findOne({ _id: orderId, userId });
+  if (!order) throw createError("Order not found", 404);
+
+  if (order.paymentStatus !== "PAID") {
+    throw createError("Only paid orders can be reviewed");
+  }
+
+  if (order.status !== "COMPLETED") {
+    throw createError("You can review only after receiving your food");
+  }
+
+  return order;
+};
+
+const ensureFoodBelongsToOrder = async (orderId, foodId) => {
+  if (!foodId) return null;
+
+  const orderItems = await OrderItem.find({ orderId })
+    .populate("foodId", "_id")
+    .populate({
+      path: "menuScheduleItemId",
+      populate: { path: "foodId", select: "_id" },
+    });
+
+  const hasFood = orderItems.some((item) => {
+    const directFoodId = item.foodId?._id || item.foodId;
+    const menuFoodId = item.menuScheduleItemId?.foodId?._id;
+    return [directFoodId, menuFoodId]
+      .filter(Boolean)
+      .some((id) => id.toString() === foodId.toString());
+  });
+
+  if (!hasFood) {
+    throw createError("Food does not belong to this order");
+  }
+
+  return foodId;
+};
+
+const getFoodIdFromOrderItem = (orderItem) => {
+  const directFoodId = orderItem.foodId?._id || orderItem.foodId;
+  const menuFoodId = orderItem.menuScheduleItemId?.foodId?._id;
+  return directFoodId || menuFoodId || null;
+};
+
+const ensureOrderItemForReview = async (orderId, orderItemId, foodId = null) => {
+  const orderItem = await OrderItem.findOne({ _id: orderItemId, orderId })
+    .populate("foodId", "_id name imageUrl price")
+    .populate({
+      path: "menuScheduleItemId",
+      populate: { path: "foodId", select: "_id name imageUrl price" },
+    });
+
+  if (!orderItem) {
+    throw createError("Order item not found in this order", 404);
+  }
+
+  const resolvedFoodId = getFoodIdFromOrderItem(orderItem);
+  if (!resolvedFoodId) {
+    throw createError("Order item does not have a food reference");
+  }
+
+  if (foodId && resolvedFoodId.toString() !== foodId.toString()) {
+    throw createError("Food does not match this order item");
+  }
+
+  return { orderItem, foodId: resolvedFoodId };
+};
+
+const formatReviewableOrderItem = (orderItem, rating = null) => {
+  const food = orderItem.foodId || orderItem.menuScheduleItemId?.foodId || null;
+  return {
+    orderItemId: orderItem._id.toString(),
+    foodId: food?._id?.toString() || "",
+    foodName: food?.name || "Food",
+    foodImage: food?.imageUrl || null,
+    quantity: orderItem.quantity || 0,
+    unitPrice: orderItem.unitPrice || food?.price || 0,
+    reviewStatus: rating ? "REVIEWED" : "NOT_REVIEWED",
+    review: rating
+      ? {
+          ratingId: rating._id.toString(),
+          stars: rating.stars,
+          comment: rating.comment || "",
+          staffReply: rating.staffReply || null,
+          createdAt: rating.createdAt,
+          updatedAt: rating.updatedAt,
+        }
+      : null,
+  };
+};
+
+const buildFilter = async (query = {}, options = {}) => {
+  const filter = {};
+  if (options.userId) filter.userId = options.userId;
+
+  const orderId = getOptionalObjectId(query.orderId, "orderId");
+  if (orderId) filter.orderId = orderId;
+
+  const foodId = getOptionalObjectId(query.foodId, "foodId");
+  if (foodId) {
+    addAndClause(filter, { foodId });
+  }
+
+  if (query.ratingType) filter.ratingType = query.ratingType;
+  if (query.stars !== undefined) filter.stars = getStars(query.stars);
+
+  const keyword = (query.keyword || query.q || query.search || "").trim();
+  if (keyword) {
+    const regex = new RegExp(escapeRegExp(keyword), "i");
+    addAndClause(filter, { $or: [{ comment: regex }, { staffReply: regex }] });
+  }
+
+  return filter;
+};
+
+const create = async (userId, data = {}) => {
+  assertAllowedCreateFields(data);
+
+  const orderId = getObjectId(data.orderId, "orderId");
+  const foodId = getOptionalObjectId(data.foodId, "foodId");
+  const orderItemId = getOptionalObjectId(data.orderItemId, "orderItemId");
+  await ensureCompletedOrderForReview(userId, orderId);
+
+  const stars = getStars(data.stars);
+  const comment = getComment(data.comment);
+
+  if (orderItemId) {
+    const resolved = await ensureOrderItemForReview(orderId, orderItemId, foodId);
+    const ratingType = getRatingType(data.ratingType || "FOOD", resolved.foodId);
+    if (ratingType !== "FOOD") {
+      throw createError("orderItemId can only be used for FOOD rating");
+    }
+
+    const duplicate = await Rating.findOne({ userId, orderItemId });
+    if (duplicate) {
+      throw createError("You already reviewed this order item", 409);
+    }
+
+    const rating = await Rating.create({
+      userId,
+      orderId,
+      orderItemId,
+      foodId: resolved.foodId,
+      ratingType,
+      stars,
+      comment,
+    });
+
+    return populateRating(Rating.findById(rating._id));
+  }
+
+  await ensureFoodBelongsToOrder(orderId, foodId);
+  const ratingType = getRatingType(data.ratingType, foodId);
+  if (ratingType === "FOOD") {
+    throw createError("orderItemId is required for FOOD rating");
+  }
+
+  const duplicate = await Rating.findOne({
+    userId,
+    orderId,
+    foodId: foodId || null,
+    ratingType,
+  });
+  if (duplicate) {
+    throw createError("You already reviewed this order or food", 409);
+  }
+
+  const rating = await Rating.create({
+    userId,
+    orderId,
+    foodId: foodId || null,
+    ratingType,
+    stars,
+    comment,
+  });
+
+  return populateRating(Rating.findById(rating._id));
+};
+
+const createMany = async (userId, data = {}) => {
+  const orderId = getObjectId(data.orderId, "orderId");
+  if (!Array.isArray(data.reviews) || data.reviews.length === 0) {
+    throw createError("reviews must contain at least one item");
+  }
+
+  await ensureCompletedOrderForReview(userId, orderId);
+
+  const seenOrderItemIds = new Set();
+  const reviewDocs = [];
+
+  for (const item of data.reviews) {
+    const orderItemId = getObjectId(item.orderItemId, "orderItemId");
+    if (seenOrderItemIds.has(orderItemId.toString())) {
+      throw createError("Duplicate orderItemId in reviews payload");
+    }
+    seenOrderItemIds.add(orderItemId.toString());
+
+    const foodId = getOptionalObjectId(item.foodId, "foodId");
+    const stars = getStars(item.stars);
+    const comment = getComment(item.comment);
+    const resolved = await ensureOrderItemForReview(orderId, orderItemId, foodId);
+
+    reviewDocs.push({
+      userId,
+      orderId,
+      orderItemId,
+      foodId: resolved.foodId,
+      ratingType: "FOOD",
+      stars,
+      comment,
+    });
+  }
+
+  const existing = await Rating.find({
+    userId,
+    orderItemId: { $in: [...seenOrderItemIds] },
+  }).select("orderItemId");
+  if (existing.length > 0) {
+    throw createError("One or more order items were already reviewed", 409);
+  }
+
+  const ratings = await Rating.insertMany(reviewDocs, { ordered: true });
+  return populateRating(Rating.find({ _id: { $in: ratings.map((r) => r._id) } }));
+};
+
+const listReviewableItems = async (userId, orderId) => {
+  const validOrderId = getObjectId(orderId, "orderId");
+  await ensureCompletedOrderForReview(userId, validOrderId);
+
+  const [orderItems, ratings] = await Promise.all([
+    OrderItem.find({ orderId: validOrderId })
+      .populate("foodId", "_id name imageUrl price")
+      .populate({
+        path: "menuScheduleItemId",
+        populate: { path: "foodId", select: "_id name imageUrl price" },
+      }),
+    Rating.find({
+      userId,
+      orderId: validOrderId,
+      orderItemId: { $ne: null },
+      isActive: true,
+    }),
+  ]);
+
+  const ratingsByOrderItem = new Map(
+    ratings.map((rating) => [rating.orderItemId.toString(), rating]),
+  );
+
+  return {
+    orderId: validOrderId,
+    items: orderItems.map((item) =>
+      formatReviewableOrderItem(
+        item,
+        ratingsByOrderItem.get(item._id.toString()) || null,
+      ),
+    ),
+  };
+};
+
+
+
+/**
+ * Retrieve a list of ratings with pagination, search, and filtering.
+ * Optimized pipeline: Applies basic filters (initialMatch) at the top of the pipeline ($match)
+ * to minimize the number of documents passed to subsequent $lookup stages, significantly boosting performance.
+ * @param {Object} query Query parameters (page, limit, keyword, type, stars)
+ * @returns {Promise<Object>} List of items and pagination metadata
+ */
 const list = async (query = {}) => {
   const { page, limit, skip } = getPagination(query);
-  const filter = {};
-  if (query.isActive !== undefined) filter.isActive = query.isActive === "true";
-  if (query.status) filter.status = query.status;
-  if (query.type) filter.type = query.type;
-  if (query.keyword)
-    filter.$or = [
-      { name: new RegExp(query.keyword, "i") },
-      { title: new RegExp(query.keyword, "i") },
-      { email: new RegExp(query.keyword, "i") },
-      { fullName: new RegExp(query.keyword, "i") },
-    ];
+
+  // 1. Initialize base filter (Pre-lookup match)
+  const initialMatch = {};
+  const foodId = getOptionalObjectId(query.foodId, "foodId");
+  if (foodId) initialMatch.foodId = new mongoose.Types.ObjectId(foodId);
+
+  const orderId = getOptionalObjectId(query.orderId, "orderId");
+  if (orderId) initialMatch.orderId = new mongoose.Types.ObjectId(orderId);
+
+  if (query.type) initialMatch.ratingType = query.type;
+  if (query.stars) {
+    const parsedStars = parseInt(query.stars, 10);
+    if (!isNaN(parsedStars)) initialMatch.stars = parsedStars;
+  }
+
+  // Filter by hasReply
+  if (query.hasReply === "true") {
+    initialMatch.staffReply = { $ne: null };
+  } else if (query.hasReply === "false") {
+    initialMatch.staffReply = null;
+  }
+
+  // Filter by date range (using Vietnam Timezone)
+  if (query.startDate || query.endDate) {
+    const dateMatch = {};
+    if (query.startDate) {
+      const parsedStart = new Date(query.startDate);
+      if (!isNaN(parsedStart.getTime())) {
+        const { start } = getVietnamDayRange(parsedStart);
+        dateMatch.$gte = start;
+      }
+    }
+    if (query.endDate) {
+      const parsedEnd = new Date(query.endDate);
+      if (!isNaN(parsedEnd.getTime())) {
+        const { end } = getVietnamDayRange(parsedEnd);
+        dateMatch.$lte = end;
+      }
+    }
+    if (Object.keys(dateMatch).length > 0) {
+      initialMatch.createdAt = dateMatch;
+    }
+  }
+
+  const pipeline = [];
+
+  if (Object.keys(initialMatch).length > 0) {
+    pipeline.push({ $match: initialMatch });
+  }
+
+  // 2. Perform Lookups (Join data with users, foods, and orders collections)
+  // Use preserveNullAndEmptyArrays to ensure the Rating persists even if the User/Food has been deleted
+  pipeline.push(
+    {
+      $lookup: {
+        from: "users",
+        localField: "userId",
+        foreignField: "_id",
+        as: "userId",
+      },
+    },
+    { $unwind: { path: "$userId", preserveNullAndEmptyArrays: true } },
+    {
+      $lookup: {
+        from: "foods",
+        localField: "foodId",
+        foreignField: "_id",
+        as: "foodId",
+      },
+    },
+    { $unwind: { path: "$foodId", preserveNullAndEmptyArrays: true } },
+    {
+      $lookup: {
+        from: "orders",
+        localField: "orderId",
+        foreignField: "_id",
+        as: "orderId",
+      },
+    },
+    { $unwind: { path: "$orderId", preserveNullAndEmptyArrays: true } },
+    {
+      $lookup: {
+        from: "orderitems",
+        localField: "orderItemId",
+        foreignField: "_id",
+        as: "orderItemId",
+      },
+    },
+    { $unwind: { path: "$orderItemId", preserveNullAndEmptyArrays: true } },
+  );
+
+  // 3. Handle Keyword search
+  // Must be executed after Lookups to enable text search across joined User, Food, and Order details
+  if (query.keyword) {
+    const safeKeyword = escapeRegExp(query.keyword);
+    const keywordRegex = new RegExp(safeKeyword, "i");
+    pipeline.push({
+      $match: {
+        $or: [
+          { comment: keywordRegex },
+          { staffReply: keywordRegex },
+          { "userId.fullName": keywordRegex },
+          { "userId.email": keywordRegex },
+          { "foodId.name": keywordRegex },
+          { "orderId.orderCode": keywordRegex },
+        ],
+      },
+    });
+  }
+
+  // 4. Create pipeline to count total records (For pagination metadata)
+  const totalPipeline = [...pipeline, { $count: "total" }];
+
+  // 5. Append Sort, Pagination, and Sensitive Data Masking stages to the main pipeline
+  pipeline.push(
+    { $sort: { createdAt: -1 } },
+    { $skip: skip },
+    { $limit: limit },
+    {
+      $project: {
+        "userId.passwordHash": 0, // Mask the hashed password
+        "userId.isActive": 0,
+        "userId.createdAt": 0,
+        "userId.updatedAt": 0,
+        "userId.__v": 0,
+        "foodId.createdAt": 0,
+        "foodId.updatedAt": 0,
+        "foodId.__v": 0,
+        "orderId.createdAt": 0,
+        "orderId.updatedAt": 0,
+        "orderId.__v": 0,
+        "orderItemId.createdAt": 0,
+        "orderItemId.updatedAt": 0,
+        "orderItemId.__v": 0,
+      },
+    },
+  );
+
+  // 6. Execute both pipelines in parallel to optimize I/O blocking time
+  const [items, totalResult] = await Promise.all([
+    Rating.aggregate(pipeline),
+    Rating.aggregate(totalPipeline),
+  ]);
+
+  const total = totalResult.length > 0 ? totalResult[0].total : 0;
+
+  return {
+    items,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  };
+};
+
+const listMine = async (userId, query = {}) => {
+  const { page, limit, skip } = getPagination(query);
+  const filter = await buildFilter(query, { userId });
 
   const [items, total] = await Promise.all([
-    Rating.find(filter).skip(skip).limit(limit).sort({ createdAt: -1 }),
+    populateRating(
+      Rating.find(filter).skip(skip).limit(limit).sort({ createdAt: -1 }),
+    ),
     Rating.countDocuments(filter),
   ]);
 
@@ -28,9 +554,125 @@ const list = async (query = {}) => {
   };
 };
 
-const getById = (id) => Rating.findById(id);
+const listPublic = async (query = {}) => {
+  const { page, limit, skip } = getPagination(query);
+  const foodId = getObjectId(query.foodId, "foodId");
+  const filter = {
+    foodId,
+    ratingType: "FOOD",
+    isActive: true,
+  };
+
+  const [items, total] = await Promise.all([
+    Rating.find(filter)
+      .select("ratingType stars comment staffReply userId foodId createdAt updatedAt")
+      .populate("userId", "fullName avatarUrl")
+      .populate("foodId", "name imageUrl price")
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 }),
+    Rating.countDocuments(filter),
+  ]);
+
+  return {
+    items,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  };
+};
+
+/**
+ * Get detailed rating by ID
+ * Populates relationships and excludes sensitive fields
+ * @param {String} id Rating ObjectId
+ * @returns {Promise<Object|null>} Rating document or null
+ */
+const getById = async (id) => {
+  return Rating.findById(id).populate([
+    {
+      path: "userId",
+      select: "-passwordHash -isActive -createdAt -updatedAt -__v",
+    },
+    { path: "foodId", select: "-createdAt -updatedAt -__v" },
+    { path: "orderId", select: "-createdAt -updatedAt -__v" },
+    { path: "orderItemId", select: "-createdAt -updatedAt -__v" },
+    {
+      path: "repliedBy",
+      select: "-passwordHash -isActive -createdAt -updatedAt -__v",
+    },
+  ]);
+};
+
+const getMineById = (userId, id) => {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw createError("Invalid rating id");
+  }
+
+  return populateRating(Rating.findOne({ _id: id, userId }));
+};
+
+const updateMineById = async (userId, id, data = {}) => {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw createError("Invalid rating id");
+  }
+
+  assertAllowedUpdateFields(data);
+  const update = {};
+  if (data.stars !== undefined) update.stars = getStars(data.stars);
+  if (data.comment !== undefined) update.comment = getComment(data.comment);
+  if (Object.keys(update).length) update.isEdited = true;
+  if (!Object.keys(update).length) throw createError("No valid fields to update");
+
+  const rating = await Rating.findOneAndUpdate({ _id: id, userId }, update, {
+    new: true,
+    runValidators: true,
+  });
+  if (!rating) throw createError("Rating not found", 404);
+
+  return populateRating(Rating.findById(rating._id));
+};
+
+const deleteMineById = async (userId, id) => {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw createError("Invalid rating id");
+  }
+
+  const rating = await Rating.findOneAndDelete({ _id: id, userId });
+  if (!rating) throw createError("Rating not found", 404);
+
+  return rating;
+};
+
 const updateById = (id, data) =>
   Rating.findByIdAndUpdate(id, data, { new: true, runValidators: true });
+
 const deleteById = (id) => Rating.findByIdAndDelete(id);
 
-module.exports = { create, list, getById, updateById, deleteById };
+/**
+ * Reply to a rating
+ * @param {String} id Rating ObjectId
+ * @param {String} staffReply Content of the reply
+ * @param {String} repliedBy User ObjectId of the staff member
+ * @returns {Promise<Object|null>} Updated rating document
+ */
+const replyRating = (id, staffReply, repliedBy) =>
+  Rating.findByIdAndUpdate(
+    id,
+    { staffReply, repliedBy, repliedAt: new Date() },
+    { new: true, runValidators: true },
+  );
+
+module.exports = {
+  create,
+  createMany,
+  listReviewableItems,
+  list,
+  listPublic,
+  listMine,
+  getById,
+  getMineById,
+  updateMineById,
+  deleteMineById,
+  updateById,
+  deleteById,
+  replyRating,
+};

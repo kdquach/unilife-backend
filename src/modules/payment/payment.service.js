@@ -43,7 +43,8 @@ const generateQrCodeUrl = (amount, transferContent) => {
  * @returns {string} Transfer content (e.g., UN234199)
  */
 const generateTransferContent = (orderCode) => {
-  return `UN${orderCode}`;
+  // Strip hyphens because bank transfers/NAPAS often remove special characters
+  return `UN${orderCode}`.replace(/-/g, "");
 };
 
 /**
@@ -122,9 +123,10 @@ const processWebhook = async (webhookData) => {
 
   // 1. Try finding by extracted code from SePay payload if available
   if (webhookData.code) {
+    const cleanCode = webhookData.code.toUpperCase().replace(/-/g, "");
     order = await Order.findOne({
       $or: [
-        { transferContent: webhookData.code.toUpperCase() },
+        { transferContent: cleanCode },
         { orderCode: webhookData.code },
       ],
     });
@@ -132,7 +134,8 @@ const processWebhook = async (webhookData) => {
 
   // 2. Try regex match on content for UN pattern
   if (!order && content) {
-    const match = content.match(/UN(\d+)/i);
+    const cleanContent = content.replace(/-/g, ""); // Strip hyphens before regex matching
+    const match = cleanContent.match(/UN([a-zA-Z0-9]+)/i);
     if (match) {
       const extractedCode = `UN${match[1]}`.toUpperCase();
       order = await Order.findOne({ transferContent: extractedCode });
@@ -140,6 +143,34 @@ const processWebhook = async (webhookData) => {
   }
 
   if (!order) {
+    // Look for recent pending order (online or walk-in)
+    const recentPendingOrder = await Order.findOne({
+      $or: [
+        { paymentStatus: "PENDING" },
+        { status: "PENDING_PAYMENT" },
+      ],
+      status: { $nin: ["CANCELLED", "COMPLETED"] },
+    }).sort({ createdAt: -1 });
+
+    if (recentPendingOrder) {
+      const noteMsg = `Error: Invalid transfer content. Received: "${content}", Expected: "${recentPendingOrder.transferContent}". Order not confirmed.`;
+      await Order.updateOne(
+        { _id: recentPendingOrder._id },
+        {
+          $set: {
+            note: recentPendingOrder.note
+              ? `${recentPendingOrder.note} | ${noteMsg}`
+              : noteMsg,
+          },
+        },
+      );
+      return {
+        success: true,
+        message:
+          "Invalid transfer content for recent pending order. Note updated.",
+      };
+    }
+
     return { success: true, message: "Order not found for this transfer" };
   }
 
@@ -211,7 +242,7 @@ const processWebhook = async (webhookData) => {
     {
       $set: {
         paymentStatus: "PAID",
-        status: "CONFIRMED",
+        status: order.isWalkIn ? "COMPLETED" : "CONFIRMED",
         paidAt: new Date(),
         transactionRef: referenceCode || String(transactionId || ""),
         "paymentInfo.qrCodeUrl": null,
@@ -305,9 +336,10 @@ const expirePendingOrders = async () => {
             },
           });
         } else if (item.itemType === "REGULAR_FOOD" && item.foodId) {
-          await Food.findByIdAndUpdate(item.foodId, {
-            $inc: { stockQuantity: item.quantity },
-          });
+          await Food.findOneAndUpdate(
+            { _id: item.foodId, stockQuantity: { $ne: null } },
+            { $inc: { stockQuantity: item.quantity } }
+          );
         }
       }
 

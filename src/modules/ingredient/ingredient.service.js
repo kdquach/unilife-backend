@@ -7,6 +7,7 @@ const Ingredient = require("./ingredient.model");
 const IngredientCategory = require("../ingredientCategory/ingredientCategory.model");
 const IngredientBatch = require("../ingredientBatch/ingredientBatch.model");
 const IngredientTransaction = require("../ingredientTransaction/ingredientTransaction.model");
+const FoodIngredient = require("../foodIngredient/foodIngredient.model");
 const Supplier = require("../supplier/supplier.model");
 const { getPagination } = require("../../utils/pagination.util");
 
@@ -70,6 +71,23 @@ const getOptionalObjectId = (value, fieldName) => {
   }
 
   return trimmed;
+};
+
+const getActorId = (user) => {
+  const value = user?._id || user?.id || user?.userId;
+  if (!value) return null;
+
+  const textValue = String(value).trim();
+  return mongoose.Types.ObjectId.isValid(textValue) ? textValue : null;
+};
+
+const getMetadata = (value) => {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw createError("metadata must be an object");
+  }
+
+  return value;
 };
 
 const getNumber = (value, fieldName, options = {}) => {
@@ -166,7 +184,10 @@ const getIngredientCategoryId = async (value) => {
 };
 
 const assertUniqueIngredientName = async (name, excludeId = null) => {
-  const filter = { name: new RegExp(`^${escapeRegExp(name)}$`, "i") };
+  const filter = {
+    name: new RegExp(`^${escapeRegExp(name)}$`, "i"),
+    isDeleted: { $ne: true },
+  };
   if (excludeId) filter._id = { $ne: excludeId };
 
   const existing = await Ingredient.findOne(filter);
@@ -176,6 +197,44 @@ const assertUniqueIngredientName = async (name, excludeId = null) => {
       409,
     );
   }
+};
+
+const getAffectedFoods = async (ingredientId) => {
+  if (!mongoose.Types.ObjectId.isValid(ingredientId)) {
+    throw createError("Invalid ingredient id");
+  }
+
+  const recipeItems = await FoodIngredient.find({ ingredientId })
+    .populate("foodId", "name price isActive isMenuItem categoryId")
+    .sort({ createdAt: 1 });
+
+  const foodMap = new Map();
+  recipeItems.forEach((item) => {
+    const food = item.foodId;
+    if (!food?._id) return;
+
+    const key = String(food._id);
+    const current = foodMap.get(key);
+    if (current) {
+      current.recipeUsageCount += 1;
+      return;
+    }
+
+    foodMap.set(key, {
+      _id: food._id,
+      foodId: food._id,
+      name: food.name,
+      price: food.price,
+      isActive: food.isActive,
+      isMenuItem: food.isMenuItem,
+      categoryId: food.categoryId,
+      recipeUsageCount: 1,
+    });
+  });
+
+  return Array.from(foodMap.values()).sort((a, b) =>
+    String(a.name || "").localeCompare(String(b.name || "")),
+  );
 };
 
 const assertAllowedIngredientFields = (data = {}, options = {}) => {
@@ -207,7 +266,6 @@ const assertAllowedStockImportFields = (data = {}) => {
     "reason",
     "referenceType",
     "referenceId",
-    "importCode",
   ]);
   const unknownFields = Object.keys(data || {}).filter(
     (field) => !allowedFields.has(field),
@@ -235,6 +293,7 @@ const assertAllowedStockAdjustmentFields = (data = {}) => {
     "reason",
     "referenceType",
     "referenceId",
+    "metadata",
   ]);
   const unknownFields = Object.keys(data || {}).filter(
     (field) => !allowedFields.has(field),
@@ -245,9 +304,19 @@ const assertAllowedStockAdjustmentFields = (data = {}) => {
   }
 };
 
-const assertFutureDate = (date, fieldName) => {
-  if (date <= new Date()) {
-    throw createError(`${fieldName} must be in the future`);
+const isPastDate = (date) => {
+  const value = new Date(date);
+  value.setHours(0, 0, 0, 0);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return value < today;
+};
+
+const assertNotPastDate = (date, fieldName) => {
+  if (isPastDate(date)) {
+    throw createError(`${fieldName} cannot be in the past`);
   }
 };
 
@@ -310,14 +379,13 @@ const buildIngredientData = async (data = {}, options = {}) => {
   }
 
   if (data.storageType !== undefined) {
-    const storageType = String(data.storageType || "").trim();
-    if (storageType.length > 50) {
-      throw createError("Storage type must be less than or equal to 50 characters");
+    const STORAGE_TYPES = ["DRY", "COLD", "FROZEN"];
+    const storageType = String(data.storageType || "").trim().toUpperCase();
+    
+    if (storageType && !STORAGE_TYPES.includes(storageType)) {
+      throw createError(`Storage type must be one of: ${STORAGE_TYPES.join(", ")}`);
     }
-    if (storageType) {
-      assertHasLetter(storageType, "Storage type");
-      assertOnlyLettersAndSpaces(storageType, "Storage type");
-    }
+    
     payload.storageType = storageType || undefined;
   }
 
@@ -347,6 +415,13 @@ const create = async (data) => {
   const payload = await buildIngredientData(data);
   await assertUniqueIngredientName(payload.name);
 
+  // Validate minStockThreshold <= currentStock (should be 0 for new ingredients)
+  if (payload.minStockThreshold > 0) {
+    throw createError(
+      `minStockThreshold (${payload.minStockThreshold}) cannot be greater than currentStock (0) for new ingredients`
+    );
+  }
+
   return Ingredient.create(payload);
 };
 
@@ -354,14 +429,20 @@ const buildIngredientFilter = (query = {}) => {
   const filter = {};
   const keyword = (query.keyword || query.q || query.search || "").trim();
   const isActive = toBoolean(query.isActive);
+  const isDeleted = toBoolean(query.isDeleted);
+  const includeDeleted = toBoolean(query.includeDeleted);
   const categoryIds = getObjectIds(
     query.categoryIds || query.categoryId,
     "categoryId",
   );
 
-  if (isActive !== undefined) {
-    filter.isActive = isActive;
+  if (isDeleted !== undefined) {
+    filter.isDeleted = isDeleted;
+  } else if (includeDeleted !== true) {
+    filter.isDeleted = { $ne: true };
   }
+
+  if (isActive !== undefined) filter.isActive = isActive;
 
   if (categoryIds.length === 1) {
     filter.categoryId = categoryIds[0];
@@ -533,7 +614,7 @@ const increaseBatchStock = async (ingredient, adjustment, data, session) => {
     if (supplierId) batch.supplierId = supplierId;
     if (unitPrice !== undefined) batch.unitPrice = unitPrice;
     if (expiryDate) {
-      assertFutureDate(expiryDate, "expiryDate");
+      assertNotPastDate(expiryDate, "expiryDate");
       await assertNoBatchWithExpiryDate(
         ingredient._id,
         expiryDate,
@@ -560,7 +641,7 @@ const increaseBatchStock = async (ingredient, adjustment, data, session) => {
   if (!expiryDate) {
     throw createError("expiryDate is required for a new stock batch");
   }
-  assertFutureDate(expiryDate, "expiryDate");
+  assertNotPastDate(expiryDate, "expiryDate");
   await assertNoBatchWithExpiryDate(ingredient._id, expiryDate, session);
 
   const [batch] = await IngredientBatch.create(
@@ -718,12 +799,17 @@ const adjustStock = async (id, data = {}, user = null, extSession = null) => {
   assertAllowedStockAdjustmentFields(data);
 
   const referenceId = getOptionalObjectId(data.referenceId, "referenceId");
+  const adjustedBy = getActorId(user);
+  const metadata = getMetadata(data.metadata);
   const session = extSession || await mongoose.startSession();
   let transactionId = null;
 
   const executeLogic = async (sess) => {
     const ingredient = await Ingredient.findById(id).session(sess);
     if (!ingredient) throw createError("Ingredient not found", 404);
+    if (ingredient.isDeleted) {
+      throw createError("Ingredient not found", 404);
+    }
     if (!ingredient.isActive) {
       throw createError("Cannot adjust stock for inactive ingredient");
     }
@@ -750,12 +836,13 @@ const adjustStock = async (id, data = {}, user = null, extSession = null) => {
           stockAfter: adjustment.stockAfter,
           unit: ingredient.unit || null,
           reason: adjustment.reason,
-          adjustedBy: user?._id || null,
+          adjustedBy,
           referenceType: data.referenceType || "STOCK_ADJUSTMENT",
           referenceId,
           metadata: {
             adjustmentType: adjustment.adjustmentType,
-            source: "MANUAL_STOCK_ADJUSTMENT",
+            source: metadata.source || "MANUAL_STOCK_ADJUSTMENT",
+            ...metadata,
             affectedBatches: batchResult.affectedBatches,
           },
         },
@@ -798,15 +885,15 @@ const recordStockImport = async (id, data = {}, user = null) => {
 
   const quantity = getNumber(data.quantity, "quantity", { positive: true });
   const expiryDate = getRequiredDate(data.expiryDate, "expiryDate");
-  if (expiryDate <= new Date()) {
-    throw createError("expiryDate must be in the future");
-  }
+  assertNotPastDate(expiryDate, "expiryDate");
 
-  const unitPrice = getOptionalNumber(data.unitPrice, "unitPrice", {
-    nonNegative: true,
+  const unitPrice = getNumber(data.unitPrice, "unitPrice", {
+    positive: true,
+    maxDecimals: 2,
   });
   const supplierId = await getSupplierId(data.supplierId);
   const referenceId = getOptionalObjectId(data.referenceId, "referenceId");
+  const adjustedBy = getActorId(user);
   const reason = String(data.reason || "Stock import").trim();
   if (reason.length > 500) {
     throw createError("Reason must be less than or equal to 500 characters");
@@ -820,6 +907,9 @@ const recordStockImport = async (id, data = {}, user = null) => {
     await session.withTransaction(async () => {
       const ingredient = await Ingredient.findById(id).session(session);
       if (!ingredient) throw createError("Ingredient not found", 404);
+      if (ingredient.isDeleted) {
+        throw createError("Ingredient not found", 404);
+      }
       if (!ingredient.isActive) {
         throw createError("Cannot import stock for inactive ingredient");
       }
@@ -857,12 +947,11 @@ const recordStockImport = async (id, data = {}, user = null) => {
             stockAfter,
             unit: ingredient.unit || null,
             reason,
-            adjustedBy: user?._id || null,
+            adjustedBy,
             referenceType: data.referenceType || "STOCK_IMPORT",
             referenceId,
             metadata: {
               source: "MANAGER_STOCK_IMPORT",
-              importCode: data.importCode || null,
               supplierId,
               unitPrice: unitPrice || 0,
               expiryDate,
@@ -912,6 +1001,27 @@ const getById = async (id) => {
   };
 };
 
+const getDeleteImpact = async (id) => {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw createError("Invalid ingredient id");
+  }
+
+  const ingredient = await Ingredient.findById(id).populate(
+    "categoryId",
+    "name description",
+  );
+  if (!ingredient || ingredient.isDeleted) {
+    throw createError("Ingredient not found", 404);
+  }
+
+  const affectedFoods = await getAffectedFoods(id);
+  return {
+    ingredient,
+    affectedFoods,
+    affectedFoodCount: affectedFoods.length,
+  };
+};
+
 const updateById = async (id, data = {}) => {
   if (!mongoose.Types.ObjectId.isValid(id)) {
     throw createError("Invalid ingredient id");
@@ -919,6 +1029,7 @@ const updateById = async (id, data = {}) => {
 
   const existing = await Ingredient.findById(id);
   if (!existing) throw createError("Ingredient not found", 404);
+  if (existing.isDeleted) throw createError("Ingredient not found", 404);
 
   const payload = await buildIngredientData(data, { partial: true });
   if (!Object.keys(payload).length) {
@@ -932,12 +1043,79 @@ const updateById = async (id, data = {}) => {
     await assertUniqueIngredientName(payload.name, id);
   }
 
+  // Validate minStockThreshold <= currentStock
+  if (payload.minStockThreshold !== undefined) {
+    const currentStock = Number(existing.currentStock || 0);
+    if (payload.minStockThreshold > currentStock) {
+      throw createError(
+        `minStockThreshold (${payload.minStockThreshold}) cannot be greater than currentStock (${currentStock})`
+      );
+    }
+  }
+
   Object.assign(existing, payload);
   await existing.save();
 
   return Ingredient.findById(id).populate("categoryId", "name description");
 };
-const deleteById = (id) => Ingredient.findByIdAndDelete(id);
+const deleteById = async (id, user = null) => {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw createError("Invalid ingredient id");
+  }
+
+  const ingredient = await Ingredient.findById(id);
+  if (!ingredient) throw createError("Ingredient not found", 404);
+
+  if (ingredient.isDeleted) {
+    throw createError("Ingredient is already deleted");
+  }
+
+  const affectedFoods = await getAffectedFoods(id);
+
+  ingredient.isDeleted = true;
+  await ingredient.save();
+
+  const stock = Number(ingredient.currentStock || 0);
+  await IngredientTransaction.create({
+    ingredientId: ingredient._id,
+    transactionType: "INGREDIENT_DELETE",
+    quantity: 0,
+    stockBefore: stock,
+    stockAfter: stock,
+    unit: ingredient.unit || null,
+    reason: "Ingredient deleted",
+    adjustedBy: getActorId(user),
+    referenceType: "INGREDIENT_DELETE",
+    referenceId: ingredient._id,
+    metadata: {
+      source: "INGREDIENT_SOFT_DELETE",
+      deletedIngredient: {
+        name: ingredient.name,
+        unit: ingredient.unit || null,
+        storageType: ingredient.storageType || null,
+        categoryId: ingredient.categoryId || null,
+        minStockThreshold: ingredient.minStockThreshold,
+        currentStock: stock,
+      },
+      affectedFoods: affectedFoods.map((food) => ({
+        foodId: food.foodId,
+        name: food.name,
+        recipeUsageCount: food.recipeUsageCount,
+      })),
+    },
+  });
+
+  const deletedIngredient = await Ingredient.findById(id).populate(
+    "categoryId",
+    "name description",
+  );
+
+  return {
+    ...deletedIngredient.toObject(),
+    affectedFoods,
+    affectedFoodCount: affectedFoods.length,
+  };
+};
 
 module.exports = {
   create,
@@ -947,6 +1125,7 @@ module.exports = {
   adjustStock,
   recordStockImport,
   getById,
+  getDeleteImpact,
   updateById,
   deleteById,
 };
