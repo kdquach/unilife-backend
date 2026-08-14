@@ -21,7 +21,7 @@ const escapeRegExp = (value = "") =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const TEXT_HAS_LETTER = /\p{L}/u;
-const TEXT_ONLY_LETTERS_AND_SPACES = /^[\p{L}\s]+$/u;
+const TEXT_ONLY_LETTERS_SPACES_AND_NUMBERS = /^[\p{L}\s\d]+$/u;
 
 const assertHasLetter = (value, fieldName) => {
   if (!TEXT_HAS_LETTER.test(value)) {
@@ -29,9 +29,9 @@ const assertHasLetter = (value, fieldName) => {
   }
 };
 
-const assertOnlyLettersAndSpaces = (value, fieldName) => {
-  if (!TEXT_ONLY_LETTERS_AND_SPACES.test(value)) {
-    throw createError(`${fieldName} can only contain letters and spaces`);
+const assertOnlyLettersSpacesAndNumbers = (value, fieldName) => {
+  if (!TEXT_ONLY_LETTERS_SPACES_AND_NUMBERS.test(value)) {
+    throw createError(`${fieldName} can only contain letters, spaces, and numbers`);
   }
 };
 
@@ -363,7 +363,7 @@ const buildIngredientData = async (data = {}, options = {}) => {
       throw createError("Ingredient name must be less than or equal to 120 characters");
     }
     assertHasLetter(name, "Ingredient name");
-    assertOnlyLettersAndSpaces(name, "Ingredient name");
+    assertOnlyLettersSpacesAndNumbers(name, "Ingredient name");
     payload.name = name;
   }
 
@@ -374,7 +374,7 @@ const buildIngredientData = async (data = {}, options = {}) => {
       throw createError("Unit must be less than or equal to 30 characters");
     }
     assertHasLetter(unit, "Unit");
-    assertOnlyLettersAndSpaces(unit, "Unit");
+    assertOnlyLettersSpacesAndNumbers(unit, "Unit");
     payload.unit = unit;
   }
 
@@ -414,13 +414,6 @@ const buildIngredientData = async (data = {}, options = {}) => {
 const create = async (data) => {
   const payload = await buildIngredientData(data);
   await assertUniqueIngredientName(payload.name);
-
-  // Validate minStockThreshold <= currentStock (should be 0 for new ingredients)
-  if (payload.minStockThreshold > 0) {
-    throw createError(
-      `minStockThreshold (${payload.minStockThreshold}) cannot be greater than currentStock (0) for new ingredients`
-    );
-  }
 
   return Ingredient.create(payload);
 };
