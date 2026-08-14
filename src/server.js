@@ -14,7 +14,9 @@ connectDB().then(() => {
     console.log(`UniLife API is running on port ${PORT}`);
   });
 
-  // Start scheduled task to check for expired orders every minute
+  // DISABLED: Auto-cancelling stale orders to prevent cancelling active payment orders
+  // Only frontend trigger when countdown expires
+  /*
   setInterval(async () => {
     try {
       const result = await OrderService.checkExpiredOrders();
@@ -25,4 +27,6 @@ connectDB().then(() => {
       console.error("[Order Expiry Check] Error:", error);
     }
   }, 60 * 1000); // Run every minute
+  */
+  console.log("[Order Expiry Check] DISABLED - Frontend only trigger");
 });

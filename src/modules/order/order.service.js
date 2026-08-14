@@ -15,7 +15,7 @@ const {
   getSepayConfig,
 } = require("../payment/payment.service");
 const User = require("../user/user.model");
-const { isSameVietnamDay, getCurrentVietnamTimestamp, getCurrentVietnamTime } = require("../../utils/date.util");
+const { isSameVietnamDay } = require("../../utils/date.util");
 
 const PAYMENT_EXPIRY_MINUTES = 15;
 
@@ -24,7 +24,7 @@ const PAYMENT_EXPIRY_MINUTES = 15;
  * This should be called periodically (e.g., every minute) to clean up expired orders
  */
 const checkExpiredOrders = async () => {
-  const now = new Date(getCurrentVietnamTimestamp());
+  const now = new Date();
   
   // Find all PENDING_PAYMENT orders that have expired
   const expiredOrders = await Order.find({
@@ -109,7 +109,7 @@ const checkExpiredOrders = async () => {
 // SEQUENCE = 3-digit sequential number for the day
 // CHECKSUM = single digit for validation
 const generateOrderCode = async (orderType = "ON") => {
-  const now = getCurrentVietnamTime();
+  const now = new Date();
   const dateStr = now
     .toLocaleDateString('vi-VN', {
       day: '2-digit',
@@ -297,7 +297,7 @@ const create = async (data) => {
 
         order.transferContent = transferContent;
         order.expiresAt = new Date(
-          getCurrentVietnamTimestamp() + PAYMENT_EXPIRY_MINUTES * 60 * 1000
+          Date.now() + PAYMENT_EXPIRY_MINUTES * 60 * 1000
         );
         order.paymentInfo = {
           bankName: sepayConfig.bankName,
@@ -368,7 +368,7 @@ const checkout = async (userId, data = {}) => {
         if (
           !menuItem.menuScheduleId ||
           menuItem.menuScheduleId.status !== "PUBLISHED" ||
-          !isSameVietnamDay(menuItem.menuScheduleId.date, getCurrentVietnamTime())
+          !isSameVietnamDay(menuItem.menuScheduleId.date)
         ) {
           throw Object.assign(
             new Error(`Only today's menu items can be checked out`),
@@ -496,7 +496,7 @@ const checkout = async (userId, data = {}) => {
   // Generate payment info
   const sepayConfig = getSepayConfig();
   const qrCodeUrl = generateQrCodeUrl(totalPrice, transferContent);
-  const expiresAt = new Date(getCurrentVietnamTimestamp() + PAYMENT_EXPIRY_MINUTES * 60 * 1000);
+  const expiresAt = new Date(Date.now() + PAYMENT_EXPIRY_MINUTES * 60 * 1000);
 
   // Create order
   const order = await Order.create({
