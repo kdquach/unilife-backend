@@ -118,18 +118,17 @@ const generateOrderCode = async (orderType = "ON") => {
     })
     .replace(/\//g, '');
 
-  // Get today's sequence number
-  const todayStart = new Date(now);
-  todayStart.setHours(0, 0, 0, 0);
-  const todayEnd = new Date(now);
-  todayEnd.setHours(23, 59, 59, 999);
+  // Use atomic counter to prevent race conditions
+  const counterName = `orderCounter_${orderType}_${dateStr}`;
+  
+  // Find and increment counter atomically
+  const counter = await mongoose.connection.db.collection('counters').findOneAndUpdate(
+    { _id: counterName },
+    { $inc: { sequence: 1 } },
+    { upsert: true, returnDocument: 'after' }
+  );
 
-  const count = await Order.countDocuments({
-    createdAt: { $gte: todayStart, $lte: todayEnd },
-    isWalkIn: orderType === "WI"
-  });
-
-  const sequence = (count + 1).toString().padStart(3, '0');
+  const sequence = (counter.sequence || 1).toString().padStart(3, '0');
 
   // Calculate checksum (simple sum of digits mod 10)
   const calculateChecksum = (str) => {
@@ -489,35 +488,57 @@ const checkout = async (userId, data = {}) => {
     throw err;
   }
 
-  // Generate order code and transfer content
-  const orderCode = await generateOrderCode("ON");
-  const transferContent = generateTransferContent(orderCode);
+  // Generate order code and transfer content with retry logic for duplicate errors
+  let orderCode;
+  let transferContent;
+  let order;
+  let maxRetries = 3;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      orderCode = await generateOrderCode("ON");
+      transferContent = generateTransferContent(orderCode);
+      
+      // Generate payment info
+      const sepayConfig = getSepayConfig();
+      const qrCodeUrl = generateQrCodeUrl(totalPrice, transferContent);
+      const expiresAt = new Date(Date.now() + PAYMENT_EXPIRY_MINUTES * 60 * 1000);
 
-  // Generate payment info
-  const sepayConfig = getSepayConfig();
-  const qrCodeUrl = generateQrCodeUrl(totalPrice, transferContent);
-  const expiresAt = new Date(Date.now() + PAYMENT_EXPIRY_MINUTES * 60 * 1000);
-
-  // Create order
-  const order = await Order.create({
-    userId,
-    createdBy: userId,
-    orderCode,
-    status: "PENDING_PAYMENT",
-    totalPrice,
-    note: data.note || null,
-    paymentMethod: "SEPAY",
-    paymentStatus: "PENDING",
-    isWalkIn: false,
-    transferContent,
-    paymentInfo: {
-      bankName: sepayConfig.bankName,
-      accountNumber: sepayConfig.bankAccountNumber,
-      accountName: sepayConfig.accountName,
-      qrCodeUrl,
-    },
-    expiresAt,
-  });
+      // Create order
+      order = await Order.create({
+        userId,
+        createdBy: userId,
+        orderCode,
+        status: "PENDING_PAYMENT",
+        totalPrice,
+        note: data.note || null,
+        paymentMethod: "SEPAY",
+        paymentStatus: "PENDING",
+        isWalkIn: false,
+        transferContent,
+        paymentInfo: {
+          bankName: sepayConfig.bankName,
+          accountNumber: sepayConfig.bankAccountNumber,
+          accountName: sepayConfig.accountName,
+          qrCodeUrl,
+        },
+        expiresAt,
+      });
+      
+      // If successful, exit retry loop
+      break;
+      
+    } catch (error) {
+      // If it's a duplicate key error, retry with a new code
+      if (error.code === 11000 && error.message.includes('orderCode') && attempt < maxRetries - 1) {
+        console.log(`Duplicate orderCode detected, retrying (attempt ${attempt + 1}/${maxRetries})`);
+        continue; // Try again with new code
+      } else {
+        // If it's not a duplicate error or we've exhausted retries, throw the error
+        throw error;
+      }
+    }
+  }
 
   // Create order items
   for (const itemData of orderItemsData) {
