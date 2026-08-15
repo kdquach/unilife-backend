@@ -27,6 +27,9 @@ const ingredientBatchSchema = new mongoose.Schema(
   },
 );
 
+// Add unique compound index to prevent duplicate batches for same ingredient on same expiry date
+ingredientBatchSchema.index({ ingredientId: 1, expiryDate: 1 }, { unique: true });
+
 ingredientBatchSchema.virtual("ingredientBatchId").get(function () {
   return this._id.toString();
 });
