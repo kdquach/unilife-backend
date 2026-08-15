@@ -45,6 +45,10 @@ app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
 app.use(
   "/uploads",
+  (req, res, next) => {
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    next();
+  },
   express.static(
     path.join(process.cwd(), process.env.UPLOAD_ROOT || "uploads"),
   ),
