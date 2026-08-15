@@ -379,14 +379,13 @@ const buildIngredientData = async (data = {}, options = {}) => {
   }
 
   if (data.storageType !== undefined) {
-    const storageType = String(data.storageType || "").trim();
-    if (storageType.length > 50) {
-      throw createError("Storage type must be less than or equal to 50 characters");
+    const STORAGE_TYPES = ["DRY", "COLD", "FROZEN"];
+    const storageType = String(data.storageType || "").trim().toUpperCase();
+    
+    if (storageType && !STORAGE_TYPES.includes(storageType)) {
+      throw createError(`Storage type must be one of: ${STORAGE_TYPES.join(", ")}`);
     }
-    if (storageType) {
-      assertHasLetter(storageType, "Storage type");
-      assertOnlyLettersAndSpaces(storageType, "Storage type");
-    }
+    
     payload.storageType = storageType || undefined;
   }
 
