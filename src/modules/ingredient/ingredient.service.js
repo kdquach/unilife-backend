@@ -528,7 +528,7 @@ const buildStockAdjustment = (ingredient, data = {}) => {
   if (["INCREASE", "ADD", "STOCK_IN", "IMPORT", "RECEIVE"].includes(adjustmentType)) {
     const quantity = getNumber(data.quantity, "quantity", {
       positive: true,
-      maxDecimals: 2,
+      maxDecimals: 1,
     });
     return {
       adjustmentType: "INCREASE",
@@ -543,7 +543,7 @@ const buildStockAdjustment = (ingredient, data = {}) => {
   if (["DECREASE", "REMOVE", "STOCK_OUT", "USE", "WASTE", "DAMAGE", "LOSS"].includes(adjustmentType)) {
     const quantity = getNumber(data.quantity, "quantity", {
       positive: true,
-      maxDecimals: 2,
+      maxDecimals: 1,
     });
     const stockAfter = stockBefore - quantity;
     if (stockAfter < 0) {
@@ -564,7 +564,7 @@ const buildStockAdjustment = (ingredient, data = {}) => {
     const nextStock = data.newStock !== undefined ? data.newStock : data.stockAfter;
     const stockAfter = getNumber(nextStock, "newStock", {
       nonNegative: true,
-      maxDecimals: 2,
+      maxDecimals: 1,
     });
 
     if (stockAfter > stockBefore) {
@@ -591,7 +591,7 @@ const increaseBatchStock = async (ingredient, adjustment, data, session) => {
   const supplierId = getOptionalObjectId(data.supplierId, "supplierId");
   const unitPrice = getOptionalNumber(data.unitPrice, "unitPrice", {
     nonNegative: true,
-    maxDecimals: 2,
+    maxDecimals: 1,
   });
   const expiryDate = getOptionalDate(data.expiryDate, "expiryDate");
 
@@ -882,7 +882,7 @@ const recordStockImport = async (id, data = {}, user = null) => {
 
   const unitPrice = getNumber(data.unitPrice, "unitPrice", {
     positive: true,
-    maxDecimals: 2,
+    maxDecimals: 1,
   });
   const supplierId = await getSupplierId(data.supplierId);
   const referenceId = getOptionalObjectId(data.referenceId, "referenceId");
