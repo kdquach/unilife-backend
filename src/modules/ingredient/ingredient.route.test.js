@@ -337,4 +337,62 @@ describe("Ingredient Routes - Soft Delete", () => {
     expect(storedIngredient.isActive).toBe(true);
     expect(storedIngredient.isDeleted).toBe(false);
   });
+
+  it("does not allow creating ingredient with minStockThreshold > currentStock", async () => {
+    const res = await request(app)
+      .post("/api/v1/ingredients")
+      .set("Authorization", `Bearer ${managerToken}`)
+      .send({
+        name: "Sugar",
+        unit: "kg",
+        storageType: "DRY",
+        minStockThreshold: 10,
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toContain("minStockThreshold (10) cannot be greater than currentStock (0)");
+  });
+
+  it("does not allow updating ingredient with minStockThreshold > currentStock", async () => {
+    const ingredient = await Ingredient.create({
+      name: "Salt",
+      unit: "kg",
+      storageType: "DRY",
+      currentStock: 5,
+      minStockThreshold: 2,
+      isActive: true,
+    });
+
+    const res = await request(app)
+      .patch(`/api/v1/ingredients/${ingredient._id}`)
+      .set("Authorization", `Bearer ${managerToken}`)
+      .send({
+        minStockThreshold: 10,
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toContain("minStockThreshold (10) cannot be greater than currentStock (5)");
+  });
+
+  it("allows updating ingredient with minStockThreshold <= currentStock", async () => {
+    const ingredient = await Ingredient.create({
+      name: "Pepper",
+      unit: "kg",
+      storageType: "DRY",
+      currentStock: 5,
+      minStockThreshold: 2,
+      isActive: true,
+    });
+
+    const res = await request(app)
+      .patch(`/api/v1/ingredients/${ingredient._id}`)
+      .set("Authorization", `Bearer ${managerToken}`)
+      .send({
+        minStockThreshold: 3,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.minStockThreshold).toBe(3);
+  });
 });

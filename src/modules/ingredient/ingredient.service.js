@@ -416,6 +416,13 @@ const create = async (data) => {
   const payload = await buildIngredientData(data);
   await assertUniqueIngredientName(payload.name);
 
+  // Validate minStockThreshold <= currentStock (should be 0 for new ingredients)
+  if (payload.minStockThreshold > 0) {
+    throw createError(
+      `minStockThreshold (${payload.minStockThreshold}) cannot be greater than currentStock (0) for new ingredients`
+    );
+  }
+
   return Ingredient.create(payload);
 };
 
@@ -1035,6 +1042,16 @@ const updateById = async (id, data = {}) => {
     payload.name.toLowerCase() !== String(existing.name || "").toLowerCase()
   ) {
     await assertUniqueIngredientName(payload.name, id);
+  }
+
+  // Validate minStockThreshold <= currentStock
+  if (payload.minStockThreshold !== undefined) {
+    const currentStock = Number(existing.currentStock || 0);
+    if (payload.minStockThreshold > currentStock) {
+      throw createError(
+        `minStockThreshold (${payload.minStockThreshold}) cannot be greater than currentStock (${currentStock})`
+      );
+    }
   }
 
   Object.assign(existing, payload);
