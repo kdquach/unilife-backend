@@ -94,6 +94,18 @@ const createWalkIn = asyncHandler(async (req, res) => {
   );
 });
 
+const checkExpiredOrders = asyncHandler(async (req, res) => {
+  // This endpoint should be called by a cron job or scheduled task
+  // For security, we might want to restrict this to admin/manager roles
+  // or use an API key instead of user authentication
+  const result = await service.checkExpiredOrders();
+  return success(
+    res,
+    result,
+    `Processed ${result.processed} expired orders`,
+  );
+});
+
 module.exports = {
   create,
   createWalkIn,
@@ -104,4 +116,5 @@ module.exports = {
   updateById,
   deleteById,
   getPaymentStatus,
+  checkExpiredOrders,
 };

@@ -50,6 +50,9 @@ router.post(
 // Payment status
 router.get("/:id/payment-status", controller.getPaymentStatus);
 
+// Check and expire orders (can be called by customers when their payment timer expires)
+router.post("/check-expired", controller.checkExpiredOrders);
+
 // Existing CRUD routes
 router.get("/", controller.list);
 router.post("/", controller.create);

@@ -30,6 +30,216 @@ beforeEach(async () => {
   await CartItem.deleteMany({});
 });
 
+describe("Order Service - Check Expired Orders", () => {
+  it("should cancel orders with PENDING_PAYMENT status that have expired", async () => {
+    const userId = new mongoose.Types.ObjectId();
+
+    const food = await Food.create({
+      name: "Test Food",
+      description: "Test",
+      price: 10000,
+      stockQuantity: 10,
+      isActive: true,
+      categoryId: new mongoose.Types.ObjectId(),
+      image: "test.jpg",
+    });
+
+    const cart = await Cart.create({ userId });
+    await CartItem.create({ cartId: cart._id, foodId: food._id, quantity: 2 });
+
+    // Manually deduct stock to simulate order creation
+    await Food.findByIdAndUpdate(food._id, { $inc: { stockQuantity: -2 } });
+
+    // Create an order with PENDING_PAYMENT status that has already expired
+    const expiredOrder = await Order.create({
+      userId,
+      orderCode: "TEST001",
+      status: "PENDING_PAYMENT",
+      paymentStatus: "PENDING",
+      paymentMethod: "SEPAY",
+      totalPrice: 20000,
+      expiresAt: new Date(Date.now() - 1000), // Expired 1 second ago
+      transferContent: "TEST001",
+    });
+
+    await OrderItem.create({
+      orderId: expiredOrder._id,
+      foodId: food._id,
+      quantity: 2,
+      unitPrice: 10000,
+      subtotal: 20000,
+    });
+
+    // Verify stock was deducted
+    const foodBeforeExpiry = await Food.findById(food._id);
+    expect(foodBeforeExpiry.stockQuantity).toBe(8);
+
+    // Run the expired orders check
+    const result = await orderService.checkExpiredOrders();
+
+    expect(result.processed).toBe(1);
+    expect(result.details).toHaveLength(1);
+    expect(String(result.details[0].orderId)).toBe(String(expiredOrder._id));
+    expect(result.details[0].status).toBe("CANCELLED");
+    expect(result.details[0].reason).toBe("Payment timeout");
+
+    // Verify the order was cancelled
+    const updatedOrder = await Order.findById(expiredOrder._id);
+    expect(updatedOrder.status).toBe("CANCELLED");
+    expect(updatedOrder.paymentStatus).toBe("EXPIRED");
+    expect(updatedOrder.note).toContain("[EXPIRED]");
+
+    // Verify stock was restored
+    const updatedFood = await Food.findById(food._id);
+    expect(updatedFood.stockQuantity).toBe(10); // Should be restored to original
+  });
+
+  it("should not cancel orders that haven't expired yet", async () => {
+    const userId = new mongoose.Types.ObjectId();
+
+    const food = await Food.create({
+      name: "Test Food",
+      description: "Test",
+      price: 10000,
+      stockQuantity: 10,
+      isActive: true,
+      categoryId: new mongoose.Types.ObjectId(),
+      image: "test.jpg",
+    });
+
+    const cart = await Cart.create({ userId });
+    await CartItem.create({ cartId: cart._id, foodId: food._id, quantity: 2 });
+
+    // Manually deduct stock to simulate order creation
+    await Food.findByIdAndUpdate(food._id, { $inc: { stockQuantity: -2 } });
+
+    // Create an order with PENDING_PAYMENT status that hasn't expired yet
+    const activeOrder = await Order.create({
+      userId,
+      orderCode: "TEST002",
+      status: "PENDING_PAYMENT",
+      paymentStatus: "PENDING",
+      paymentMethod: "SEPAY",
+      totalPrice: 20000,
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000), // Expires in 15 minutes
+      transferContent: "TEST002",
+    });
+
+    await OrderItem.create({
+      orderId: activeOrder._id,
+      foodId: food._id,
+      quantity: 2,
+      unitPrice: 10000,
+      subtotal: 20000,
+    });
+
+    // Run the expired orders check
+    const result = await orderService.checkExpiredOrders();
+
+    expect(result.processed).toBe(0);
+    expect(result.details).toHaveLength(0);
+
+    // Verify the order is still PENDING_PAYMENT
+    const updatedOrder = await Order.findById(activeOrder._id);
+    expect(updatedOrder.status).toBe("PENDING_PAYMENT");
+    expect(updatedOrder.paymentStatus).toBe("PENDING");
+
+    // Verify stock was NOT restored (since order wasn't cancelled)
+    const updatedFood = await Food.findById(food._id);
+    expect(updatedFood.stockQuantity).toBe(8); // Still deducted
+  });
+
+  it("should not cancel orders with non-PENDING_PAYMENT status", async () => {
+    const userId = new mongoose.Types.ObjectId();
+
+    // Create an order with CONFIRMED status (even if expired)
+    const confirmedOrder = await Order.create({
+      userId,
+      orderCode: "TEST003",
+      status: "CONFIRMED",
+      paymentStatus: "PAID",
+      paymentMethod: "SEPAY",
+      totalPrice: 20000,
+      expiresAt: new Date(Date.now() - 1000), // Expired
+      transferContent: "TEST003",
+    });
+
+    // Run the expired orders check
+    const result = await orderService.checkExpiredOrders();
+
+    expect(result.processed).toBe(0);
+    expect(result.details).toHaveLength(0);
+
+    // Verify the order is still CONFIRMED
+    const updatedOrder = await Order.findById(confirmedOrder._id);
+    expect(updatedOrder.status).toBe("CONFIRMED");
+  });
+
+  it("should restore menu item stock when order expires", async () => {
+    const userId = new mongoose.Types.ObjectId();
+
+    const food = await Food.create({
+      name: "Test Food",
+      description: "Test",
+      price: 10000,
+      isActive: true,
+      categoryId: new mongoose.Types.ObjectId(),
+      image: "test.jpg",
+    });
+
+    const menuScheduleItem = await MenuScheduleItem.create({
+      foodId: food._id,
+      menuScheduleId: new mongoose.Types.ObjectId(),
+      maxServing: 20,
+      remainingCount: 20,
+      reservedCount: 0,
+      isActive: true,
+      recipeSnapshot: [],
+      deductedBatches: [],
+    });
+
+    // Manually deduct stock to simulate order creation
+    await MenuScheduleItem.findByIdAndUpdate(menuScheduleItem._id, {
+      $inc: { remainingCount: -5, reservedCount: 5 }
+    });
+
+    // Create an expired order with menu item
+    const expiredOrder = await Order.create({
+      userId,
+      orderCode: "TEST004",
+      status: "PENDING_PAYMENT",
+      paymentStatus: "PENDING",
+      paymentMethod: "SEPAY",
+      totalPrice: 50000,
+      expiresAt: new Date(Date.now() - 1000), // Expired
+      transferContent: "TEST004",
+    });
+
+    await OrderItem.create({
+      orderId: expiredOrder._id,
+      menuScheduleItemId: menuScheduleItem._id,
+      quantity: 5,
+      unitPrice: 10000,
+      subtotal: 50000,
+    });
+
+    // Verify stock was deducted
+    const itemBeforeExpiry = await MenuScheduleItem.findById(menuScheduleItem._id);
+    expect(itemBeforeExpiry.remainingCount).toBe(15);
+    expect(itemBeforeExpiry.reservedCount).toBe(5);
+
+    // Run the expired orders check
+    const result = await orderService.checkExpiredOrders();
+
+    expect(result.processed).toBe(1);
+
+    // Verify stock was restored
+    const updatedItem = await MenuScheduleItem.findById(menuScheduleItem._id);
+    expect(updatedItem.remainingCount).toBe(20); // Restored to original
+    expect(updatedItem.reservedCount).toBe(0); // Restored to original
+  });
+});
+
 describe("Order Service - Checkout Logic", () => {
   it("should successfully checkout and deduct stock atomically", async () => {
     const userId = new mongoose.Types.ObjectId();

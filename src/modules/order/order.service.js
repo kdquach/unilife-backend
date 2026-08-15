@@ -19,6 +19,88 @@ const { isSameVietnamDay } = require("../../utils/date.util");
 
 const PAYMENT_EXPIRY_MINUTES = 15;
 
+/**
+ * Check and expire orders with pending payment that have passed their expiry time
+ * This should be called periodically (e.g., every minute) to clean up expired orders
+ */
+const checkExpiredOrders = async () => {
+  const now = new Date();
+  
+  // Find all PENDING_PAYMENT orders that have expired
+  const expiredOrders = await Order.find({
+    status: "PENDING_PAYMENT",
+    expiresAt: { $lt: now },
+  });
+
+  if (expiredOrders.length === 0) {
+    return { processed: 0, details: [] };
+  }
+
+  const processedDetails = [];
+
+  // Process each expired order
+  for (const order of expiredOrders) {
+    try {
+      // Restore stock for menu items
+      const orderItems = await OrderItem.find({ orderId: order._id });
+      
+      for (const item of orderItems) {
+        if (item.menuScheduleItemId) {
+          await MenuScheduleItem.findByIdAndUpdate(
+            item.menuScheduleItemId,
+            {
+              $inc: {
+                remainingCount: item.quantity,
+                reservedCount: -item.quantity,
+              },
+            }
+          );
+        } else if (item.foodId) {
+          // Restore stock for regular food items
+          const food = await Food.findById(item.foodId);
+          if (food && food.stockQuantity !== null) {
+            await Food.findByIdAndUpdate(
+              item.foodId,
+              {
+                $inc: {
+                  stockQuantity: item.quantity,
+                },
+              }
+            );
+          }
+        }
+      }
+
+      // Update order status to CANCELLED
+      await Order.findByIdAndUpdate(order._id, {
+        status: "CANCELLED",
+        paymentStatus: "EXPIRED",
+        note: (order.note || "") + " [EXPIRED] Payment timeout - order automatically cancelled",
+      });
+
+      processedDetails.push({
+        orderId: order._id,
+        orderCode: order.orderCode,
+        status: "CANCELLED",
+        reason: "Payment timeout",
+      });
+    } catch (error) {
+      console.error(`Error processing expired order ${order._id}:`, error);
+      processedDetails.push({
+        orderId: order._id,
+        orderCode: order.orderCode,
+        status: "ERROR",
+        error: error.message,
+      });
+    }
+  }
+
+  return {
+    processed: expiredOrders.length,
+    details: processedDetails,
+  };
+};
+
 // Order code format: UL{TYPE}{DATE}{SEQUENCE}{CHECKSUM}
 // Example: ULON1508260012
 // UL = Unilife
@@ -708,4 +790,5 @@ module.exports = {
   deleteById,
   getPaymentStatus,
   scanPickupQr,
+  checkExpiredOrders,
 };
