@@ -316,9 +316,10 @@ describe("MenuScheduleItem Routes (POST, PATCH, DELETE)", () => {
 
       expect(res.status).toBe(400);
       expect(res.body.message).toContain(
-        'Cannot add food "Pizza" to menu because its recipe contains unavailable ingredient(s)',
+        'Cannot add "Pizza" to the menu because its recipe contains deleted ingredient(s)',
       );
-      expect(res.body.message).toContain('"Lettuce" (deleted)');
+      expect(res.body.message).toContain('"Lettuce"');
+      expect(res.body.message).toContain("Please update the recipe");
     });
   });
 
