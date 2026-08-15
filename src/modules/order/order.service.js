@@ -19,22 +19,48 @@ const { isSameVietnamDay } = require("../../utils/date.util");
 
 const PAYMENT_EXPIRY_MINUTES = 15;
 
+// Order code format: UL{TYPE}{DATE}{SEQUENCE}{CHECKSUM}
+// Example: ULON1508260012
+// UL = Unilife
+// TYPE = ON (Online) or WI (Walk-in)
+// DATE = DDMMYY
+// SEQUENCE = 3-digit sequential number for the day
+// CHECKSUM = single digit for validation
+const generateOrderCode = async (orderType = "ON") => {
+  const now = new Date();
+  const dateStr = now
+    .toLocaleDateString('vi-VN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit'
+    })
+    .replace(/\//g, '');
 
+  // Get today's sequence number
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+  const todayEnd = new Date(now);
+  todayEnd.setHours(23, 59, 59, 999);
 
-const generateRandom = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-};
+  const count = await Order.countDocuments({
+    createdAt: { $gte: todayStart, $lte: todayEnd },
+    isWalkIn: orderType === "WI"
+  });
 
-const generateOrderCode = async () => {
-  const MAX_ATTEMPTS = 10;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const orderCode = generateRandom();
-    const exists = await Order.exists({ orderCode });
-    if (!exists) return orderCode;
-  }
-  const error = new Error("Failed to generate a unique order code after maximum attempts");
-  error.statusCode = 500;
-  throw error;
+  const sequence = (count + 1).toString().padStart(3, '0');
+
+  // Calculate checksum (simple sum of digits mod 10)
+  const calculateChecksum = (str) => {
+    const digits = str.replace(/\D/g, '').split('').map(Number);
+    const sum = digits.reduce((acc, digit) => acc + digit, 0);
+    return sum % 10;
+  };
+
+  const prefix = `UNI${orderType}${dateStr}${sequence}`;
+  const checksum = calculateChecksum(prefix);
+  const orderCode = `${prefix}${checksum}`;
+
+  return orderCode;
 };
 
 const create = async (data) => {
