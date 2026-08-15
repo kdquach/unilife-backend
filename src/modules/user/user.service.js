@@ -7,6 +7,8 @@ const fs = require("fs");
 const { hashPassword } = require("../../utils/password.util");
 const ROLES = require("../../constants/roles.constant");
 
+const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
+
 const STAFF_ROLES = [
   ROLES.ADMIN,
   ROLES.MANAGER,
@@ -19,6 +21,284 @@ const MANAGER_ASSIGNABLE_STAFF_ROLES = [
 ];
 
 const STAFF_UPDATE_FIELDS = ["fullName", "email", "phone", "role", "isActive"];
+
+const TEXT_HAS_LETTER = /\p{L}/u;
+const TEXT_ONLY_LETTERS_SPACES_AND_NUMBERS = /^[\p{L}\s\d]+$/u;
+
+const assertHasLetter = (value, fieldName) => {
+  if (!TEXT_HAS_LETTER.test(value)) {
+    const err = new Error(`${fieldName} must contain at least one letter`);
+    err.statusCode = 400;
+    throw err;
+  }
+};
+
+const assertOnlyLettersSpacesAndNumbers = (value, fieldName) => {
+  if (!TEXT_ONLY_LETTERS_SPACES_AND_NUMBERS.test(value)) {
+    const err = new Error(`${fieldName} can only contain letters, spaces, and numbers`);
+    err.statusCode = 400;
+    throw err;
+  }
+};
+
+const assertValidFullName = (fullName) => {
+  if (!fullName) {
+    const err = new Error("Full Name is required");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const normalizedFullName = String(fullName).trim();
+
+  if (normalizedFullName === "") {
+    const err = new Error("Full Name cannot be empty");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (normalizedFullName.length < 2) {
+    const err = new Error("Full Name must be at least 2 characters");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (normalizedFullName.length > 100) {
+    const err = new Error("Full Name must not exceed 100 characters");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Không cho khoảng trắng đầu/cuối
+  if (fullName !== fullName.trim()) {
+    const err = new Error("Full Name must contain at least first name and last name, using letters and spaces only");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Không cho nhiều khoảng trắng liên tiếp
+  if (/\s{2,}/.test(normalizedFullName)) {
+    const err = new Error("Full Name must contain at least first name and last name, using letters and spaces only");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Phải có ít nhất first name và last name, chỉ letters (bao gồm tiếng Việt)
+  if (!/^[A-Za-zÀ-ỹĐđ]+(?:\s+[A-Za-zÀ-ỹĐđ]+)+$/.test(normalizedFullName)) {
+    const err = new Error("Full Name must contain at least first name and last name, using letters and spaces only");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  return normalizedFullName;
+};
+
+const assertValidPhone = (phone) => {
+  if (!phone) {
+    const err = new Error("Phone is required");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const normalizedPhone = String(phone).trim();
+
+  if (normalizedPhone === "") {
+    const err = new Error("Phone cannot be empty");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Chỉ cho phép số
+  if (!/^\d+$/.test(normalizedPhone)) {
+    const err = new Error("Phone must be a valid Vietnamese phone number");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Số điện thoại Việt Nam: 10 chữ số
+  if (normalizedPhone.length !== 10) {
+    const err = new Error("Phone must be a valid Vietnamese phone number");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Phải bắt đầu bằng 03, 05, 07, 08 hoặc 09
+  if (!/^(03|05|07|08|09)\d{8}$/.test(normalizedPhone)) {
+    const err = new Error("Phone must be a valid Vietnamese phone number");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  return normalizedPhone;
+};
+
+const assertValidPassword = (password) => {
+  if (!password) {
+    const err = new Error("Password is required");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (password.trim() === "") {
+    const err = new Error("Password cannot be empty");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (password.length < 8) {
+    const err = new Error("Password must be at least 8 characters");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (password.length > 128) {
+    const err = new Error("Password must not exceed 128 characters");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (/\s/.test(password)) {
+    const err = new Error("Password must contain uppercase, lowercase, number, special character, and no spaces");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!/[A-Z]/.test(password)) {
+    const err = new Error("Password must contain uppercase, lowercase, number, special character, and no spaces");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!/[a-z]/.test(password)) {
+    const err = new Error("Password must contain uppercase, lowercase, number, special character, and no spaces");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!/[0-9]/.test(password)) {
+    const err = new Error("Password must contain uppercase, lowercase, number, special character, and no spaces");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+    const err = new Error("Password must contain uppercase, lowercase, number, special character, and no spaces");
+    err.statusCode = 400;
+    throw err;
+  }
+};
+
+const assertValidEmail = (email) => {
+  if (!email) {
+    const err = new Error("Email is required");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const normalizedEmail = String(email).trim().toLowerCase();
+
+  if (normalizedEmail === "") {
+    const err = new Error("Email cannot be empty");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (normalizedEmail.length > 254) {
+    const err = new Error("Email must not exceed 254 characters");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Không cho khoảng trắng
+  if (/\s/.test(normalizedEmail)) {
+    const err = new Error("Email must be a valid email address");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Email phải có đúng 1 ký tự @
+  const atCount = (normalizedEmail.match(/@/g) || []).length;
+  if (atCount !== 1) {
+    const err = new Error("Email must be a valid email address");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const [localPart, domain] = normalizedEmail.split("@");
+
+  // Local part và domain không được rỗng
+  if (!localPart || !domain) {
+    const err = new Error("Email must be a valid email address");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Không cho dấu . ở đầu/cuối local part
+  if (localPart.startsWith(".") || localPart.endsWith(".")) {
+    const err = new Error("Email must be a valid email address");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Không cho ".."
+  if (normalizedEmail.includes("..")) {
+    const err = new Error("Email must be a valid email address");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Local part cho phép: a-z A-Z 0-9 . _ % + - và các ký tự đặc biệt
+  if (!/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(localPart)) {
+    const err = new Error("Email must be a valid email address");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Domain chỉ cho chữ, số, dấu - và .
+  if (!/^[A-Za-z0-9.-]+$/.test(domain)) {
+    const err = new Error("Email must be a valid email address");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Domain không được bắt đầu/kết thúc bằng .
+  if (domain.startsWith(".") || domain.endsWith(".")) {
+    const err = new Error("Email must be a valid email address");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Domain không được bắt đầu/kết thúc bằng -
+  if (domain.startsWith("-") || domain.endsWith("-")) {
+    const err = new Error("Email must be a valid email address");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Domain phải có ít nhất 1 dấu .
+  if (!domain.includes(".")) {
+    const err = new Error("Email must be a valid email address");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Kiểm tra từng domain segment
+  const domainParts = domain.split(".");
+  if (domainParts.some((part) => !part || part.startsWith("-") || part.endsWith("-"))) {
+    const err = new Error("Email must be a valid email address");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // TLD phải có ít nhất 2 ký tự
+  const tld = domainParts[domainParts.length - 1];
+  if (!/^[A-Za-z]{2,}$/.test(tld)) {
+    const err = new Error("Email must be a valid email address");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  return normalizedEmail;
+};
 
 const getProfile = (userId) => User.findById(userId).select("-passwordHash");
 
@@ -300,33 +580,18 @@ const normalizeStaffCreatePayload = (data = {}) => {
     isActive: data.isActive,
   };
 
-  if (typeof payload.fullName !== "string" || payload.fullName.trim() === "") {
-    const err = new Error("Full name is required");
-    err.statusCode = 400;
-    throw err;
-  }
-  payload.fullName = payload.fullName.trim();
+  // Validate fullName
+  payload.fullName = assertValidFullName(data.fullName);
 
-  if (typeof payload.email !== "string" || payload.email.trim() === "") {
-    const err = new Error("Email is required");
-    err.statusCode = 400;
-    throw err;
-  }
-  payload.email = payload.email.trim().toLowerCase();
+  // Validate email
+  payload.email = assertValidEmail(data.email);
 
-  if (typeof payload.password !== "string" || payload.password.length < 6) {
-    const err = new Error("Password must be at least 6 characters");
-    err.statusCode = 400;
-    throw err;
-  }
+  // Validate password
+  assertValidPassword(data.password);
+  payload.password = data.password;
 
-  if (payload.phone !== undefined && payload.phone !== null) {
-    if (typeof payload.phone !== "string" || !/^[0-9]{9,15}$/.test(payload.phone)) {
-      const err = new Error("Invalid phone number format");
-      err.statusCode = 400;
-      throw err;
-    }
-  }
+  // Validate phone (required for staff)
+  payload.phone = assertValidPhone(data.phone);
 
   ensureStaffRole(payload.role);
 
@@ -430,6 +695,14 @@ const createStaff = async (actor, data) => {
     throw err;
   }
 
+  // Check phone duplicate
+  const existingPhone = await User.findOne({ phone: payload.phone });
+  if (existingPhone) {
+    const err = new Error("Phone number already exists");
+    err.statusCode = 409;
+    throw err;
+  }
+
   const staff = await User.create({
     fullName: payload.fullName,
     email: payload.email,
@@ -461,20 +734,37 @@ const getUserById = (id) =>
     .select("-passwordHash");
 
 const createUser = async (data) => {
-  const existing = await User.findOne({
-    email: data.email,
-  });
+  const email = assertValidEmail(data.email);
+  const phone = assertValidPhone(data.phone);
 
-  if (existing) {
+  // CHECK EMAIL ĐÃ TỒN TẠI CHƯA
+  const existingEmail = await User.findOne({ email });
+
+  // CHỈ CẦN TỒN TẠI → BÁO LỖI
+  if (existingEmail) {
     const err = new Error("Email already exists");
     err.statusCode = 409;
     throw err;
   }
 
+  // CHECK PHONE ĐÃ TỒN TẠI CHƯA
+  const existingPhone = await User.findOne({ phone });
+  if (existingPhone) {
+    const err = new Error("Phone number already exists");
+    err.statusCode = 409;
+    throw err;
+  }
+
+  // Validate fullName
+  const fullName = assertValidFullName(data.fullName);
+
+  // Validate password
+  assertValidPassword(data.password);
+
   const user = await User.create({
-    fullName: data.fullName,
-    email: data.email,
-    phone: data.phone,
+    fullName,
+    email,
+    phone,
     passwordHash: await hashPassword(data.password),
     role: data.role || ROLES.CUSTOMER,
     avatarUrl: data.avatarUrl || null,
