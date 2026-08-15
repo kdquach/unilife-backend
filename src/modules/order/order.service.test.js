@@ -8,6 +8,7 @@ const Food = require("../food/food.model");
 const MenuScheduleItem = require("../menuScheduleItem/menuScheduleItem.model");
 const Cart = require("../cart/cart.model");
 const CartItem = require("../cartItem/cartItem.model");
+const { getCurrentVietnamTimestamp } = require("../../utils/date.util");
 
 
 
@@ -58,7 +59,7 @@ describe("Order Service - Check Expired Orders", () => {
       paymentStatus: "PENDING",
       paymentMethod: "SEPAY",
       totalPrice: 20000,
-      expiresAt: new Date(Date.now() - 1000), // Expired 1 second ago
+      expiresAt: new Date(getCurrentVietnamTimestamp() - 1000), // Expired 1 second ago
       transferContent: "TEST001",
     });
 
@@ -121,7 +122,7 @@ describe("Order Service - Check Expired Orders", () => {
       paymentStatus: "PENDING",
       paymentMethod: "SEPAY",
       totalPrice: 20000,
-      expiresAt: new Date(Date.now() + 15 * 60 * 1000), // Expires in 15 minutes
+      expiresAt: new Date(getCurrentVietnamTimestamp() + 15 * 60 * 1000), // Expires in 15 minutes
       transferContent: "TEST002",
     });
 
@@ -160,7 +161,7 @@ describe("Order Service - Check Expired Orders", () => {
       paymentStatus: "PAID",
       paymentMethod: "SEPAY",
       totalPrice: 20000,
-      expiresAt: new Date(Date.now() - 1000), // Expired
+      expiresAt: new Date(getCurrentVietnamTimestamp() - 1000), // Expired
       transferContent: "TEST003",
     });
 
@@ -211,7 +212,7 @@ describe("Order Service - Check Expired Orders", () => {
       paymentStatus: "PENDING",
       paymentMethod: "SEPAY",
       totalPrice: 50000,
-      expiresAt: new Date(Date.now() - 1000), // Expired
+      expiresAt: new Date(getCurrentVietnamTimestamp() - 1000), // Expired
       transferContent: "TEST004",
     });
 
@@ -459,7 +460,7 @@ describe("Order Service - Cancel Order", () => {
       paymentMethod: "SEPAY",
       paymentStatus: "PAID",
       isWalkIn: false,
-      createdAt: new Date(Date.now() - 60 * 60 * 1000), // 1 hour ago
+      createdAt: new Date(getCurrentVietnamTimestamp() - 60 * 60 * 1000), // 1 hour ago
     });
 
     const updatedOrder = await orderService.updateById(order._id, { status: "CANCELLED" });
