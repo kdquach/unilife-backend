@@ -207,7 +207,7 @@ const normalizeIngredientItems = async (items) => {
     ingredientIds.push(ingredientId);
 
     const rawQuantity = item?.quantityPerServing ?? item?.quantity;
-    const quantityPerServing = getNumberWithMaxDecimals(rawQuantity, "Quantity per serving", 1);
+    const quantityPerServing = getNumberWithMaxDecimals(rawQuantity, "Quantity per serving", 3);
     if (
       quantityPerServing === undefined ||
       quantityPerServing === null ||
@@ -344,7 +344,9 @@ const syncFoodIngredients = async (foodId, ingredients) => {
 
 const create = async (data) => {
   const payload = normalizePayload(data);
-  const ingredients = await normalizeIngredientItems(data.ingredients);
+  const ingredients = payload.isMenuItem
+    ? await normalizeIngredientItems(data.ingredients)
+    : [];
   await Promise.all([
     ensureUniqueName(payload.name),
     ensureCategoryExists(payload.categoryId),
@@ -543,7 +545,10 @@ const getByIdForKitchen = async (id) => {
 const updateById = async (id, data) => {
   const existingFood = await getExistingById(id);
   const payload = normalizePayload(data, { partial: true, existingFood });
-  const ingredients = await normalizeIngredientItems(data.ingredients);
+  const isMenuItem = payload.isMenuItem ?? existingFood.isMenuItem;
+  const ingredients = isMenuItem
+    ? await normalizeIngredientItems(data.ingredients)
+    : [];
   await Promise.all([
     ensureUniqueName(payload.name, id),
     ensureCategoryExists(payload.categoryId),
