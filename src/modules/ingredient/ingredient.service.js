@@ -528,7 +528,7 @@ const buildStockAdjustment = (ingredient, data = {}) => {
   if (["INCREASE", "ADD", "STOCK_IN", "IMPORT", "RECEIVE"].includes(adjustmentType)) {
     const quantity = getNumber(data.quantity, "quantity", {
       positive: true,
-      maxDecimals: 1,
+      maxDecimals: 3,
     });
     return {
       adjustmentType: "INCREASE",
@@ -543,7 +543,7 @@ const buildStockAdjustment = (ingredient, data = {}) => {
   if (["DECREASE", "REMOVE", "STOCK_OUT", "USE", "WASTE", "DAMAGE", "LOSS"].includes(adjustmentType)) {
     const quantity = getNumber(data.quantity, "quantity", {
       positive: true,
-      maxDecimals: 1,
+      maxDecimals: 3,
     });
     const stockAfter = stockBefore - quantity;
     if (stockAfter < 0) {
@@ -564,7 +564,7 @@ const buildStockAdjustment = (ingredient, data = {}) => {
     const nextStock = data.newStock !== undefined ? data.newStock : data.stockAfter;
     const stockAfter = getNumber(nextStock, "newStock", {
       nonNegative: true,
-      maxDecimals: 1,
+      maxDecimals: 3,
     });
 
     if (stockAfter > stockBefore) {

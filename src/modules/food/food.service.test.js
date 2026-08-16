@@ -270,7 +270,7 @@ describe("Food Service - Manager Foods", () => {
     const result = await foodService.create({
       name: "Rice Bowl",
       price: 30000,
-      isMenuItem: "false",
+      isMenuItem: "true",
       stockQuantity: "10",
       imageUrl: "/uploads/foods/rice-bowl.jpg",
       ingredients: JSON.stringify([
@@ -285,6 +285,78 @@ describe("Food Service - Manager Foods", () => {
     expect(result.ingredients).toHaveLength(1);
     expect(result.ingredients[0].ingredientId.name).toBe("Rice");
     expect(result.ingredients[0].quantityPerServing).toBe(200);
+  });
+
+  it("accepts recipe quantities with up to three decimal places", async () => {
+    const ingredient = await Ingredient.create({
+      name: "Cooking Oil",
+      unit: "liter",
+      isActive: true,
+    });
+
+    const result = await foodService.create({
+      name: "Fried Chicken",
+      price: 30000,
+      isMenuItem: true,
+      ingredients: [
+        {
+          ingredientId: ingredient._id.toString(),
+          quantityPerServing: "0.003",
+        },
+      ],
+    });
+
+    expect(result.ingredients).toHaveLength(1);
+    expect(result.ingredients[0].quantityPerServing).toBe(0.003);
+  });
+
+  it("rejects recipe quantities with more than three decimal places", async () => {
+    const ingredient = await Ingredient.create({
+      name: "Salt",
+      unit: "kg",
+      isActive: true,
+    });
+
+    await expect(
+      foodService.create({
+        name: "Salted Chicken",
+        price: 30000,
+        isMenuItem: true,
+        ingredients: [
+          {
+            ingredientId: ingredient._id.toString(),
+            quantityPerServing: "0.0001",
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Quantity per serving must have at most 3 decimal places",
+    });
+  });
+
+  it("does not save recipe ingredients for a non-menu food", async () => {
+    const ingredient = await Ingredient.create({
+      name: "Sugar",
+      unit: "kg",
+      isActive: true,
+    });
+
+    const result = await foodService.create({
+      name: "Bottled Tea",
+      price: 15000,
+      isMenuItem: false,
+      stockQuantity: 10,
+      ingredients: [
+        {
+          ingredientId: ingredient._id.toString(),
+          quantityPerServing: 0.003,
+        },
+      ],
+    });
+
+    expect(result.ingredients).toEqual([]);
+    expect(await FoodIngredient.countDocuments({ foodId: result._id })).toBe(0);
   });
 
   it("updates food with normalized data and populated category", async () => {
@@ -320,8 +392,7 @@ describe("Food Service - Manager Foods", () => {
     const food = await Food.create({
       name: "Chicken Rice",
       price: 30000,
-      isMenuItem: false,
-      stockQuantity: 10,
+      isMenuItem: true,
     });
     await FoodIngredient.create({
       foodId: food._id,
@@ -349,6 +420,30 @@ describe("Food Service - Manager Foods", () => {
     expect(savedIngredients[0].ingredientId.toString()).toBe(
       rice._id.toString(),
     );
+  });
+
+  it("clears the recipe when a menu food is changed to a non-menu food", async () => {
+    const ingredient = await Ingredient.create({ name: "Chicken", unit: "kg" });
+    const food = await Food.create({
+      name: "Chicken Set",
+      price: 30000,
+      isMenuItem: true,
+    });
+    await FoodIngredient.create({
+      foodId: food._id,
+      ingredientId: ingredient._id,
+      quantityPerServing: 0.003,
+      unit: "kg",
+    });
+
+    const result = await foodService.updateById(food._id.toString(), {
+      isMenuItem: false,
+      stockQuantity: 10,
+    });
+
+    expect(result.isMenuItem).toBe(false);
+    expect(result.ingredients).toEqual([]);
+    expect(await FoodIngredient.countDocuments({ foodId: food._id })).toBe(0);
   });
 
   it("rejects updating a missing food", async () => {

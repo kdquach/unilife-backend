@@ -8,6 +8,11 @@ const ingredientService = require("../ingredient/ingredient.service");
 const { getPagination } = require("../../utils/pagination.util");
 const { getVietnamDayRange } = require("../../utils/date.util");
 
+const QUANTITY_PRECISION = 3;
+const QUANTITY_FACTOR = 10 ** QUANTITY_PRECISION;
+const roundQuantity = (value) =>
+  Math.round(Number(value) * QUANTITY_FACTOR) / QUANTITY_FACTOR;
+
 const dateOnly = (value) => {
   if (Array.isArray(value)) value = value[0];
   if (value instanceof Date) return value.toISOString().slice(0, 10);
@@ -182,8 +187,8 @@ for (const recipeItem of recipe) {
   const requiredQuantity =
     recipeItem.quantityPerServing * finalMaxServing;
 
-  // Round to 1 decimal place to avoid floating point issues
-  const roundedRequired = Math.round(requiredQuantity * 10) / 10;
+  // Keep inventory calculations aligned with recipe quantity precision.
+  const roundedRequired = roundQuantity(requiredQuantity);
 
   const availableQuantity = ingredient.currentStock || 0;
 
@@ -229,8 +234,7 @@ if (insufficientIngredients.length > 0) {
       for (const recipeItem of recipe) {
         const totalQty = recipeItem.quantityPerServing * finalMaxServing;
         
-        // Round to 1 decimal place before checking to avoid floating point issues
-        const roundedQty = Math.round(totalQty * 10) / 10;
+        const roundedQty = roundQuantity(totalQty);
         
         if (roundedQty <= 0) continue;
 
@@ -427,8 +431,7 @@ for (const itemData of items) {
     const totalQty =
       r.quantityPerServing * finalMaxServing;
 
-    // Round to 1 decimal place to avoid floating point issues
-    const roundedQty = Math.round(totalQty * 10) / 10;
+    const roundedQty = roundQuantity(totalQty);
 
     if (roundedQty <= 0) {
       continue;
@@ -491,8 +494,7 @@ for (const itemData of items) {
       continue;
     }
 
-    // Round to 1 decimal place to avoid floating point issues
-    const roundedQty = Math.round(totalQty * 10) / 10;
+    const roundedQty = roundQuantity(totalQty);
 
     const ingId =
       r.ingredientId._id || r.ingredientId;
@@ -672,8 +674,7 @@ const performRefund = async (item, refundQuantity, user, session) => {
     let qtyToRefund = r.quantityPerServing * refundQuantity;
     if (qtyToRefund <= 0) continue;
 
-    // Round to 1 decimal place to avoid floating point issues
-    qtyToRefund = Math.round(qtyToRefund * 10) / 10;
+    qtyToRefund = roundQuantity(qtyToRefund);
 
     const ingredient = await Ingredient.findById(r.ingredientId).session(session);
     // Find batches deducted for this ingredient, process in reverse to refund newest deductions first
@@ -685,8 +686,7 @@ const performRefund = async (item, refundQuantity, user, session) => {
       if (qtyToRefund <= 0) break;
       const refundFromThisBatch = Math.min(qtyToRefund, b.quantity);
       if (refundFromThisBatch > 0) {
-        // Round to 1 decimal place
-        const roundedRefund = Math.round(refundFromThisBatch * 10) / 10;
+        const roundedRefund = roundQuantity(refundFromThisBatch);
         const adjData = {
           adjustmentType: "INCREASE",
           quantity: roundedRefund,
@@ -730,8 +730,7 @@ const performIncrease = async (item, increaseQuantity, user, session) => {
   for (const r of recipe) {
     const totalQty = r.quantityPerServing * increaseQuantity;
     if (totalQty > 0) {
-      // Round to 1 decimal place to avoid floating point issues
-      const roundedQty = Math.round(totalQty * 10) / 10;
+      const roundedQty = roundQuantity(totalQty);
 
       const ingredient = await Ingredient.findById(r.ingredientId).session(session);
       const ingName = ingredient ? ingredient.name : "Nguyên liệu";
@@ -770,14 +769,15 @@ const performIncrease = async (item, increaseQuantity, user, session) => {
         const affected = res.transaction.metadata.affectedBatches;
         if (!Array.isArray(item.deductedBatches)) item.deductedBatches = [];
         for (const batch of affected) {
-          // Round batch quantity to 1 decimal place
-          const roundedBatchQty = Math.round(Math.abs(batch.quantity) * 10) / 10;
+          const roundedBatchQty = roundQuantity(Math.abs(batch.quantity));
           // Find existing batch entry or add new
           const existingBatch = item.deductedBatches.find(
             (b) => String(b.ingredientId) === String(r.ingredientId) && String(b.batchId) === String(batch.batchId)
           );
           if (existingBatch) {
-            existingBatch.quantity = Math.round((existingBatch.quantity + roundedBatchQty) * 10) / 10;
+            existingBatch.quantity = roundQuantity(
+              existingBatch.quantity + roundedBatchQty,
+            );
           } else {
             item.deductedBatches.push({
               ingredientId: r.ingredientId,

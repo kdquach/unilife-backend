@@ -290,6 +290,46 @@ describe("MenuScheduleItem Routes (POST, PATCH, DELETE)", () => {
       expect(transaction.metadata.affectedBatches[0].batchId).toEqual(batch._id);
     });
 
+    it("should preserve three-decimal recipe quantities in inventory calculations", async () => {
+      const ingredient = await Ingredient.create({
+        name: "Cooking Oil",
+        unit: "liter",
+        currentStock: 0.01,
+        isActive: true,
+      });
+      const batch = await IngredientBatch.create({
+        ingredientId: ingredient._id,
+        quantity: 0.01,
+        remainingQuantity: 0.01,
+        expiryDate: new Date(Date.now() + 7 * 86400000),
+      });
+      await FoodIngredient.create({
+        foodId: food._id,
+        ingredientId: ingredient._id,
+        quantityPerServing: 0.003,
+        unit: "liter",
+      });
+
+      const res = await request(app)
+        .post("/api/v1/menu-schedule-items")
+        .set("Authorization", `Bearer ${managerToken}`)
+        .send({ menuScheduleId: schedule._id, foodId: food._id, maxServing: 2 });
+
+      expect(res.status).toBe(201);
+
+      const updatedIngredient = await Ingredient.findById(ingredient._id);
+      const updatedBatch = await IngredientBatch.findById(batch._id);
+      const transaction = await IngredientTransaction.findOne({
+        ingredientId: ingredient._id,
+        transactionType: "MENU_USAGE",
+      });
+
+      expect(updatedIngredient.currentStock).toBeCloseTo(0.004, 10);
+      expect(updatedBatch.remainingQuantity).toBeCloseTo(0.004, 10);
+      expect(transaction.quantity).toBeCloseTo(-0.006, 10);
+      expect(transaction.metadata.quantityPerServing).toBe(0.003);
+    });
+
     it("should reject food whose recipe contains a deleted ingredient", async () => {
       const ingredient = await Ingredient.create({
         name: "Lettuce",
