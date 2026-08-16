@@ -182,14 +182,22 @@ for (const recipeItem of recipe) {
   const requiredQuantity =
     recipeItem.quantityPerServing * finalMaxServing;
 
+  // Round to 1 decimal place to avoid floating point issues
+  const roundedRequired = Math.round(requiredQuantity * 10) / 10;
+
   const availableQuantity = ingredient.currentStock || 0;
 
-  if (availableQuantity < requiredQuantity) {
+  // Check with rounded quantity
+  if (roundedRequired <= 0) {
+    continue;
+  }
+
+  if (availableQuantity < roundedRequired) {
     insufficientIngredients.push({
       name: ingredient.name,
-      required: requiredQuantity,
+      required: roundedRequired,
       available: availableQuantity,
-      shortage: requiredQuantity - availableQuantity,
+      shortage: roundedRequired - availableQuantity,
       unit: ingredient.unit || "kg",
     });
 
@@ -220,7 +228,11 @@ if (insufficientIngredients.length > 0) {
 
       for (const recipeItem of recipe) {
         const totalQty = recipeItem.quantityPerServing * finalMaxServing;
-        if (totalQty <= 0) continue;
+        
+        // Round to 1 decimal place before checking to avoid floating point issues
+        const roundedQty = Math.round(totalQty * 10) / 10;
+        
+        if (roundedQty <= 0) continue;
 
         const ingredientId = getRecipeIngredientId(recipeItem);
         const ingredient = recipeItem.ingredientId?._id
@@ -229,7 +241,7 @@ if (insufficientIngredients.length > 0) {
 
         const adjData = {
           adjustmentType: "DECREASE",
-          quantity: totalQty,
+          quantity: roundedQty,
           transactionType: "MENU_USAGE",
           reason: `Used for menu item "${food.name}" on ${dateOnly(schedule.date)}`,
           referenceType: "MENU_SCHEDULE_ITEM",
@@ -415,7 +427,10 @@ for (const itemData of items) {
     const totalQty =
       r.quantityPerServing * finalMaxServing;
 
-    if (totalQty <= 0) {
+    // Round to 1 decimal place to avoid floating point issues
+    const roundedQty = Math.round(totalQty * 10) / 10;
+
+    if (roundedQty <= 0) {
       continue;
     }
 
@@ -437,12 +452,12 @@ for (const itemData of items) {
         ? ingDoc.currentStock
         : 0;
 
-    if (currentStock < totalQty) {
+    if (currentStock < roundedQty) {
       insufficientIngredients.push({
         name: ingName,
-        required: totalQty,
+        required: roundedQty,
         available: currentStock,
-        shortage: totalQty - currentStock,
+        shortage: roundedQty - currentStock,
         unit: ingUnit,
       });
 
@@ -476,6 +491,9 @@ for (const itemData of items) {
       continue;
     }
 
+    // Round to 1 decimal place to avoid floating point issues
+    const roundedQty = Math.round(totalQty * 10) / 10;
+
     const ingId =
       r.ingredientId._id || r.ingredientId;
 
@@ -485,7 +503,7 @@ for (const itemData of items) {
 
     const adjData = {
       adjustmentType: "DECREASE",
-      quantity: totalQty,
+      quantity: roundedQty,
       transactionType: "MENU_USAGE",
       reason: `Used for menu item "${foodName}" on ${dateOnly(
         schedule.date
@@ -654,6 +672,9 @@ const performRefund = async (item, refundQuantity, user, session) => {
     let qtyToRefund = r.quantityPerServing * refundQuantity;
     if (qtyToRefund <= 0) continue;
 
+    // Round to 1 decimal place to avoid floating point issues
+    qtyToRefund = Math.round(qtyToRefund * 10) / 10;
+
     const ingredient = await Ingredient.findById(r.ingredientId).session(session);
     // Find batches deducted for this ingredient, process in reverse to refund newest deductions first
     const ingredientBatches = (item.deductedBatches || [])
@@ -664,9 +685,11 @@ const performRefund = async (item, refundQuantity, user, session) => {
       if (qtyToRefund <= 0) break;
       const refundFromThisBatch = Math.min(qtyToRefund, b.quantity);
       if (refundFromThisBatch > 0) {
+        // Round to 1 decimal place
+        const roundedRefund = Math.round(refundFromThisBatch * 10) / 10;
         const adjData = {
           adjustmentType: "INCREASE",
-          quantity: refundFromThisBatch,
+          quantity: roundedRefund,
           batchId: b.batchId,
           transactionType: "STOCK_IN",
           reason: `Returned from menu item "${foodName}" after reduced or cancelled servings`,
@@ -684,8 +707,8 @@ const performRefund = async (item, refundQuantity, user, session) => {
           }),
         };
         await ingredientService.adjustStock(r.ingredientId, adjData, user, session);
-        b.quantity -= refundFromThisBatch;
-        qtyToRefund -= refundFromThisBatch;
+        b.quantity -= roundedRefund;
+        qtyToRefund -= roundedRefund;
       }
     }
   }
@@ -707,15 +730,18 @@ const performIncrease = async (item, increaseQuantity, user, session) => {
   for (const r of recipe) {
     const totalQty = r.quantityPerServing * increaseQuantity;
     if (totalQty > 0) {
+      // Round to 1 decimal place to avoid floating point issues
+      const roundedQty = Math.round(totalQty * 10) / 10;
+
       const ingredient = await Ingredient.findById(r.ingredientId).session(session);
       const ingName = ingredient ? ingredient.name : "Nguyên liệu";
       const ingUnit = ingredient ? ingredient.unit || "" : "";
       const currentStock = ingredient ? ingredient.currentStock || 0 : 0;
 
-      if (currentStock < totalQty) {
-        const shortage = totalQty - currentStock;
+      if (currentStock < roundedQty) {
+        const shortage = roundedQty - currentStock;
         const error = new Error(
-          `Insufficient ingredient "${ingName}" for food "${foodName}". Required increase: ${totalQty} ${ingUnit}, Available in stock: ${currentStock} ${ingUnit} (Shortage: ${shortage} ${ingUnit})`
+          `Insufficient ingredient "${ingName}" for food "${foodName}". Required increase: ${roundedQty} ${ingUnit}, Available in stock: ${currentStock} ${ingUnit} (Shortage: ${shortage} ${ingUnit})`
         );
         error.statusCode = 400;
         throw error;
@@ -723,7 +749,7 @@ const performIncrease = async (item, increaseQuantity, user, session) => {
 
       const adjData = {
         adjustmentType: "DECREASE",
-        quantity: totalQty,
+        quantity: roundedQty,
         transactionType: "MENU_USAGE",
         reason: `Used for menu item "${foodName}" after serving increase`,
         referenceType: "MENU_SCHEDULE_ITEM",
@@ -744,24 +770,26 @@ const performIncrease = async (item, increaseQuantity, user, session) => {
         const affected = res.transaction.metadata.affectedBatches;
         if (!Array.isArray(item.deductedBatches)) item.deductedBatches = [];
         for (const batch of affected) {
+          // Round batch quantity to 1 decimal place
+          const roundedBatchQty = Math.round(Math.abs(batch.quantity) * 10) / 10;
           // Find existing batch entry or add new
           const existingBatch = item.deductedBatches.find(
             (b) => String(b.ingredientId) === String(r.ingredientId) && String(b.batchId) === String(batch.batchId)
           );
           if (existingBatch) {
-            existingBatch.quantity += Math.abs(batch.quantity);
+            existingBatch.quantity = Math.round((existingBatch.quantity + roundedBatchQty) * 10) / 10;
           } else {
             item.deductedBatches.push({
               ingredientId: r.ingredientId,
               batchId: batch.batchId,
-              quantity: Math.abs(batch.quantity),
+              quantity: roundedBatchQty,
             });
           }
         }
       } catch (err) {
-        const shortage = Math.max(0, totalQty - currentStock);
+        const shortage = Math.max(0, roundedQty - currentStock);
         const error = new Error(
-          `Insufficient ingredient "${ingName}" for food "${foodName}". Required increase: ${totalQty} ${ingUnit}, Available in stock: ${currentStock} ${ingUnit}${shortage > 0 ? ` (Shortage: ${shortage} ${ingUnit})` : ''}`
+          `Insufficient ingredient "${ingName}" for food "${foodName}". Required increase: ${roundedQty} ${ingUnit}, Available in stock: ${currentStock} ${ingUnit}${shortage > 0 ? ` (Shortage: ${shortage} ${ingUnit})` : ''}`
         );
         error.statusCode = 400;
         throw error;

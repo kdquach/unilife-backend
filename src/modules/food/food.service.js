@@ -56,6 +56,19 @@ const toNumber = (value) => {
   return Number.isFinite(number) ? number : undefined;
 };
 
+const getNumberWithMaxDecimals = (value, fieldName, maxDecimals = 1) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    throw createError(`${fieldName} must be a number`);
+  }
+
+  if (!Number.isInteger(number * 10 ** maxDecimals)) {
+    throw createError(`${fieldName} must have at most ${maxDecimals} decimal place${maxDecimals > 1 ? 's' : ''}`);
+  }
+
+  return number;
+};
+
 const applyStockQuantityRule = (
   payload,
   { partial = false, existingFood = null } = {},
@@ -194,7 +207,7 @@ const normalizeIngredientItems = async (items) => {
     ingredientIds.push(ingredientId);
 
     const rawQuantity = item?.quantityPerServing ?? item?.quantity;
-    const quantityPerServing = toNumber(rawQuantity);
+    const quantityPerServing = getNumberWithMaxDecimals(rawQuantity, "Quantity per serving", 1);
     if (
       quantityPerServing === undefined ||
       quantityPerServing === null ||
