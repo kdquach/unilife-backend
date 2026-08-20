@@ -141,7 +141,7 @@ const validateOrderCanEnterQueue = (order) => {
   }
 
   const isPaid = order.paymentStatus === "PAID";
-  const isAcceptedOrderStatus = ["PAID", "CONFIRMED"].includes(order.status);
+  const isAcceptedOrderStatus = ["PAID", "CONFIRMED", "PREPARING"].includes(order.status);
   if (!isPaid || !isAcceptedOrderStatus) {
     const error = new Error("Only paid or confirmed orders can enter kitchen queue");
     error.statusCode = 400;
@@ -202,7 +202,7 @@ const promoteNextWaitingQueue = async (query = {}) => {
 
   await Order.findByIdAndUpdate(
     nextQueue.orderId,
-    { $set: { status: "CONFIRMED" } },
+    { $set: { status: "PREPARING" } },
     { runValidators: true },
   );
 
@@ -287,8 +287,9 @@ const scanOrderQr = async (payload = {}) => {
     throw err;
   }
 
-  if (order.status === "PAID") {
-    order.status = "CONFIRMED";
+  // Change order status to PREPARING when entering queue
+  if (order.status === "PAID" || order.status === "CONFIRMED") {
+    order.status = "PREPARING";
     await order.save();
   }
 
