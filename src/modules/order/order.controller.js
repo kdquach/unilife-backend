@@ -47,13 +47,20 @@ const list = asyncHandler(async (req, res) => {
     err.statusCode = 403;
     throw err;
   }
-  
+
   if (req.user && req.user.role === ROLES.CUSTOMER) {
     query.userId = req.user._id.toString();
   }
+
+  // Auto-cancel expired orders before returning list
+  await service.cancelExpiredOrders();
+
   return success(res, await service.list(query), "Get list successfully");
 });
 const getById = asyncHandler(async (req, res) => {
+  // Auto-cancel expired orders before getting detail
+  await service.cancelExpiredOrders();
+
   const order = await service.getById(req.params.id);
   if (!order) {
     return fail(res, "Order not found", 404);

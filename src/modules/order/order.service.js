@@ -812,4 +812,5 @@ module.exports = {
   getPaymentStatus,
   scanPickupQr,
   checkExpiredOrders,
+  cancelExpiredOrders: checkExpiredOrders, // Alias for consistency
 };
