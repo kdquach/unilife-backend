@@ -482,6 +482,70 @@ describe("GET /api/v1/menu-schedules/staff", () => {
       const refundedBatch = await IngredientBatch.findOne({ ingredientId: ing._id });
       expect(refundedBatch.remainingQuantity).toBe(100);
     });
+
+    it("should immediately refund ingredients when cancelling TODAY's DRAFT menu schedule", async () => {
+      const Ingredient = require("../ingredient/ingredient.model");
+      const IngredientBatch = require("../ingredientBatch/ingredientBatch.model");
+      const FoodIngredient = require("../foodIngredient/foodIngredient.model");
+
+      const managerUser = await createTestUser(ROLES.MANAGER);
+
+      // 1. Create ingredient with a batch of stock
+      const ing = await Ingredient.create({ name: "Gà Nướng", unit: "kg", currentStock: 50, isActive: true });
+      await IngredientBatch.create({
+        ingredientId: ing._id,
+        supplierId: new mongoose.Types.ObjectId(),
+        importPrice: 20000,
+        initialQuantity: 50,
+        remainingQuantity: 50,
+        isActive: true,
+      });
+
+      // 2. Link ingredient to food
+      const category = await FoodCategory.create({ name: "Chicken Category", description: "Desc" });
+      const chickenFood = await Food.create({
+        name: "Chicken Rice",
+        categoryId: category._id,
+        price: 45000,
+        status: "AVAILABLE",
+      });
+      await FoodIngredient.create({ foodId: chickenFood._id, ingredientId: ing._id, quantityPerServing: 1 });
+
+      // 3. Create TODAY's DRAFT menu schedule
+      const todayDate = new Date();
+      const schedule = await MenuSchedule.create({
+        status: "DRAFT",
+        date: todayDate,
+      });
+
+      // 4. Add food item to draft schedule (deducts 1 * 10 = 10 kg chicken)
+      const resAdd = await request(app)
+        .post("/api/v1/menu-schedule-items")
+        .set("Authorization", `Bearer ${managerUser.token}`)
+        .send({
+          menuScheduleId: schedule._id,
+          foodId: chickenFood._id,
+          maxServing: 10,
+        });
+      expect(resAdd.status).toBe(201);
+
+      // Verify stock is deducted (50 - 10 = 40)
+      let currentIng = await Ingredient.findById(ing._id);
+      expect(currentIng.currentStock).toBe(40);
+
+      // 5. Cancel TODAY's DRAFT menu schedule
+      const resCancel = await request(app)
+        .put(`/api/v1/menu-schedules/${schedule._id}`)
+        .set("Authorization", `Bearer ${managerUser.token}`)
+        .send({
+          status: "CANCELLED",
+        });
+      expect(resCancel.status).toBe(200);
+
+      // 6. Verify stock is immediately refunded (40 -> 50)
+      const refundedIng = await Ingredient.findById(ing._id);
+      expect(refundedIng.currentStock).toBe(50);
+    });
   });
 });
 

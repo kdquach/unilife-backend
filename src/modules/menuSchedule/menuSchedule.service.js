@@ -396,9 +396,9 @@ const updateById = async (id, data, user) => {
       }
 
       if (allowedUpdates.status === "CANCELLED" && schedule.status !== "CANCELLED") {
-        const isFutureSchedule = scheduleStart > todayStart;
+        const isFutureSchedule = scheduleStart >= todayStart;
 
-        // Handle Cancel all items and refund (only if it's a future schedule)
+        // Handle Cancel all items and refund (for current or future schedule)
         if (schedule.items) {
           for (const item of schedule.items) {
             if (item.isActive) {

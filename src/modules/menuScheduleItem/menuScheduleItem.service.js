@@ -834,7 +834,7 @@ const updateById = async (id, data, user) => {
           throw error;
         }
         
-        isFutureSchedule = scheduleStart > todayStart;
+        isFutureSchedule = scheduleStart >= todayStart;
 
         // Lock the schedule document to prevent write skew / race conditions with schedule cancellation
         item.menuScheduleId.increment();
