@@ -535,7 +535,7 @@ describe("GET /api/v1/menu-schedules/staff", () => {
 
       // 5. Cancel TODAY's DRAFT menu schedule
       const resCancel = await request(app)
-        .put(`/api/v1/menu-schedules/${schedule._id}`)
+        .patch(`/api/v1/menu-schedules/${schedule._id}`)
         .set("Authorization", `Bearer ${managerUser.token}`)
         .send({
           status: "CANCELLED",

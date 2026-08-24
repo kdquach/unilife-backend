@@ -190,7 +190,11 @@ for (const recipeItem of recipe) {
   // Keep inventory calculations aligned with recipe quantity precision.
   const roundedRequired = roundQuantity(requiredQuantity);
 
-  const availableQuantity = ingredient.currentStock || 0;
+  const availableQuantity = await ingredientService.getUnexpiredStock(
+    ingredient,
+    schedule.date,
+    session,
+  );
 
   // Check with rounded quantity
   if (roundedRequired <= 0) {
@@ -246,6 +250,7 @@ if (insufficientIngredients.length > 0) {
         const adjData = {
           adjustmentType: "DECREASE",
           quantity: roundedQty,
+          cutoffDate: schedule.date,
           transactionType: "MENU_USAGE",
           reason: `Used for menu item "${food.name}" on ${dateOnly(schedule.date)}`,
           referenceType: "MENU_SCHEDULE_ITEM",
@@ -450,10 +455,11 @@ for (const itemData of items) {
     const ingUnit =
       ingDoc?.unit || "kg";
 
-    const currentStock =
-      ingDoc?.currentStock !== undefined
-        ? ingDoc.currentStock
-        : 0;
+    const currentStock = await ingredientService.getUnexpiredStock(
+      ingDoc,
+      schedule.date,
+      session,
+    );
 
     if (currentStock < roundedQty) {
       insufficientIngredients.push({
@@ -506,6 +512,7 @@ for (const itemData of items) {
     const adjData = {
       adjustmentType: "DECREASE",
       quantity: roundedQty,
+      cutoffDate: schedule.date,
       transactionType: "MENU_USAGE",
       reason: `Used for menu item "${foodName}" on ${dateOnly(
         schedule.date
@@ -721,6 +728,7 @@ const performIncrease = async (item, increaseQuantity, user, session) => {
   if (increaseQuantity <= 0) return;
 
   const schedule = item.menuScheduleId;
+  const scheduleDate = schedule?.date || new Date();
   const food = await Food.findById(item.foodId).session(session);
   const foodName = food ? food.name : "Món ăn";
 
@@ -735,7 +743,11 @@ const performIncrease = async (item, increaseQuantity, user, session) => {
       const ingredient = await Ingredient.findById(r.ingredientId).session(session);
       const ingName = ingredient ? ingredient.name : "Nguyên liệu";
       const ingUnit = ingredient ? ingredient.unit || "" : "";
-      const currentStock = ingredient ? ingredient.currentStock || 0 : 0;
+      const currentStock = await ingredientService.getUnexpiredStock(
+        ingredient,
+        scheduleDate,
+        session,
+      );
 
       if (currentStock < roundedQty) {
         const shortage = roundedQty - currentStock;
@@ -749,6 +761,7 @@ const performIncrease = async (item, increaseQuantity, user, session) => {
       const adjData = {
         adjustmentType: "DECREASE",
         quantity: roundedQty,
+        cutoffDate: scheduleDate,
         transactionType: "MENU_USAGE",
         reason: `Used for menu item "${foodName}" after serving increase`,
         referenceType: "MENU_SCHEDULE_ITEM",

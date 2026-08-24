@@ -10,6 +10,7 @@ const IngredientTransaction = require("../ingredientTransaction/ingredientTransa
 const FoodIngredient = require("../foodIngredient/foodIngredient.model");
 const Supplier = require("../supplier/supplier.model");
 const { getPagination } = require("../../utils/pagination.util");
+const { getVietnamDayRange } = require("../../utils/date.util");
 
 const createError = (message, statusCode = 400) => {
   const error = new Error(message);
@@ -293,6 +294,7 @@ const assertAllowedStockAdjustmentFields = (data = {}) => {
     "reason",
     "referenceType",
     "referenceId",
+    "cutoffDate",
     "metadata",
   ]);
   const unknownFields = Object.keys(data || {}).filter(
@@ -414,6 +416,12 @@ const buildIngredientData = async (data = {}, options = {}) => {
 const create = async (data) => {
   const payload = await buildIngredientData(data);
   await assertUniqueIngredientName(payload.name);
+
+  if (payload.minStockThreshold !== undefined && payload.minStockThreshold > 0) {
+    throw createError(
+      `minStockThreshold (${payload.minStockThreshold}) cannot be greater than currentStock (0)`
+    );
+  }
 
   return Ingredient.create(payload);
 };
@@ -664,21 +672,59 @@ const increaseBatchStock = async (ingredient, adjustment, data, session) => {
   };
 };
 
+const getUnexpiredStock = async (ingredient, cutoffDate = new Date(), session = null) => {
+  const ingredientId = ingredient?._id || ingredient;
+  let ingQuery = Ingredient.findById(ingredientId);
+  if (session) ingQuery = ingQuery.session(session);
+  const ingDoc = ingredient?._id ? ingredient : await ingQuery;
+  if (!ingDoc) return 0;
+
+  const { start: cutoffStart } = getVietnamDayRange(cutoffDate);
+
+  let batchQuery = IngredientBatch.find({
+    ingredientId: ingDoc._id,
+    remainingQuantity: { $gt: 0 },
+    expiryDate: { $ne: null, $lt: cutoffStart },
+  });
+  if (session) batchQuery = batchQuery.session(session);
+  const expiredBatches = await batchQuery;
+
+  const totalExpiredStock = expiredBatches.reduce(
+    (sum, b) => sum + Number(b.remainingQuantity || 0),
+    0,
+  );
+
+  return Math.max(0, Number(ingDoc.currentStock || 0) - totalExpiredStock);
+};
+
 const decreaseBatchStock = async (ingredient, quantity, data, session) => {
   const batchId = getOptionalObjectId(data.batchId, "batchId");
+  const cutoffDate = data.cutoffDate
+    ? getVietnamDayRange(data.cutoffDate).start
+    : (data.metadata?.menuDate ? getVietnamDayRange(data.metadata.menuDate).start : getVietnamDayRange().start);
 
   if (batchId) {
-    const batch = await IngredientBatch.findOne({
+    let batchQuery = IngredientBatch.findOne({
       _id: batchId,
       ingredientId: ingredient._id,
-    }).session(session);
+    });
+    if (session) batchQuery = batchQuery.session(session);
+    const batch = await batchQuery;
+
     if (!batch) throw createError("Ingredient batch not found", 404);
     if (batch.remainingQuantity < quantity) {
       throw createError("Insufficient stock in selected batch");
     }
+    if (batch.expiryDate && new Date(batch.expiryDate) < cutoffDate) {
+      throw createError("Selected ingredient batch is expired and cannot be used");
+    }
 
     batch.remainingQuantity -= quantity;
-    await batch.save({ session });
+    if (session) {
+      await batch.save({ session });
+    } else {
+      await batch.save();
+    }
 
     return {
       batchId: batch._id,
@@ -693,12 +739,16 @@ const decreaseBatchStock = async (ingredient, quantity, data, session) => {
     };
   }
 
-  const batches = await IngredientBatch.find({
+  let batchesQuery = IngredientBatch.find({
     ingredientId: ingredient._id,
     remainingQuantity: { $gt: 0 },
-  })
-    .sort({ expiryDate: 1, createdAt: 1 })
-    .session(session);
+    $or: [
+      { expiryDate: null },
+      { expiryDate: { $gte: cutoffDate } },
+    ],
+  }).sort({ expiryDate: 1, createdAt: 1 });
+  if (session) batchesQuery = batchesQuery.session(session);
+  const batches = await batchesQuery;
 
   const getExpirySortValue = (batch) => {
     if (!batch.expiryDate) return Number.MAX_SAFE_INTEGER;
@@ -1121,4 +1171,5 @@ module.exports = {
   getDeleteImpact,
   updateById,
   deleteById,
+  getUnexpiredStock,
 };

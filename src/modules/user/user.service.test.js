@@ -293,7 +293,7 @@ describe("User Service - Manage Staff", () => {
       fullName: "New Manager",
       email: "new.manager@unilife.local",
       phone: "0912345678",
-      password: "secret123",
+      password: "Secret123!",
       role: ROLES.MANAGER,
     });
 
@@ -315,7 +315,7 @@ describe("User Service - Manage Staff", () => {
       fullName: "Counter Staff",
       email: "created.counter@unilife.local",
       phone: "0912345678",
-      password: "secret123",
+      password: "Secret123!",
       role: ROLES.COUNTER_STAFF,
       isActive: "false",
     });
@@ -328,7 +328,7 @@ describe("User Service - Manage Staff", () => {
         fullName: "Manager Staff",
         email: "created.manager@unilife.local",
         phone: "0912345679",
-        password: "secret123",
+        password: "Secret123!",
         role: ROLES.MANAGER,
       }),
     ).rejects.toMatchObject({
@@ -349,7 +349,7 @@ describe("User Service - Manage Staff", () => {
         fullName: "Another Admin",
         email: "another.admin@unilife.local",
         phone: "0912345678",
-        password: "secret123",
+        password: "Secret123!",
         role: ROLES.ADMIN,
       }),
     ).rejects.toMatchObject({
@@ -375,7 +375,7 @@ describe("User Service - Manage Staff", () => {
         fullName: "Duplicated Staff",
         email: "existing.staff@unilife.local",
         phone: "0912345678",
-        password: "secret123",
+        password: "Secret123!",
         role: ROLES.KITCHEN_STAFF,
       }),
     ).rejects.toMatchObject({
